@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
@@ -76,6 +77,18 @@
   /* APP WRAPPER */
   #app { display: flex; width: 100%; height: 100%; }
   #app.hidden { display: none; }
+
+  /* PDF UPLOAD */
+  .upload-area { border: 2px dashed var(--border2); border-radius: var(--radius); padding: 16px; text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .upload-area:hover { border-color: var(--blue); background: var(--blue-bg); }
+  .upload-area.has-file { border-color: var(--green); background: var(--green-bg); }
+  .upload-area input[type=file] { display: none; }
+  .upload-label { font-size: 13px; color: var(--text-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .upload-progress { margin-top: 8px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; display: none; }
+  .upload-progress-bar { height: 100%; background: var(--blue); border-radius: 2px; transition: width 0.2s; }
+  .pdf-preview-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: var(--accent-bg); color: var(--accent); border: 1px solid #f5bbb8; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; margin-top: 12px; }
+  .pdf-preview-btn:hover { background: #fad7d5; }
+  .resource-card-pdf { font-size: 10px; color: var(--accent); background: var(--accent-bg); padding: 1px 6px; border-radius: 3px; margin-top: 4px; display: inline-block; }
 
   /* USER INFO in sidebar */
   .user-info { display: flex; align-items: center; gap: 8px; padding: 10px 4px; }
@@ -343,6 +356,7 @@
   <div class="nav-section">業務</div>
   <div class="nav-item" onclick="showPage('tasks')"><span class="icon">✅</span>任務看板</div>
   <div class="nav-item" onclick="showPage('policies')"><span class="icon">📋</span>保單業績</div>
+  <div class="nav-item" onclick="showPage('claims')"><span class="icon">🏥</span>理賠追蹤 <span class="nav-badge" id="badge-claims" style="background:var(--blue)">0</span></div>
   <div class="nav-item" onclick="showPage('recruits')"><span class="icon">🤝</span>增員管理 <span class="nav-badge" id="badge-recruits" style="background:var(--purple)">0</span></div>
   <div class="nav-section">工具</div>
   <div class="nav-item" onclick="showPage('calendar')"><span class="icon">📅</span>行事曆</div>
@@ -392,7 +406,9 @@
             <div id="dash-aging"></div>
           </div>
           <div>
-            <div class="dash-section-title">📋 今日到期任務</div>
+            <div class="dash-section-title">🚗 車險即將到期（30天內）</div>
+            <div id="dash-car-insurance"></div>
+            <div class="dash-section-title" style="margin-top:16px">📋 今日到期任務</div>
             <div id="dash-tasks"></div>
             <div class="dash-section-title" style="margin-top:16px">✨ 每日金句</div>
             <div class="callout yellow" id="dash-quote" onclick="changeQuote()" style="cursor:pointer">
@@ -457,7 +473,7 @@
         </select>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>姓名</th><th>電話</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>生日</th><th>增齡警戒</th><th>操作</th></tr></thead>
+        <thead><tr><th>姓名</th><th>電話</th><th>類型</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>車險到期</th><th>生日</th><th>操作</th></tr></thead>
         <tbody id="client-tbody"></tbody>
       </table></div>
     </div>
@@ -547,6 +563,41 @@
         <thead><tr><th>保單名稱</th><th>客戶</th><th>險種</th><th>年繳（萬）</th><th>月繳（萬）</th><th>生效日</th><th>成交月份</th><th>狀態</th><th>操作</th></tr></thead>
         <tbody id="policy-tbody"></tbody>
       </table></div>
+    </div>
+  </div>
+
+  <!-- ===== CLAIMS ===== -->
+  <div class="page" id="page-claims">
+    <div class="page-header">
+      <div class="page-title">🏥 理賠追蹤</div>
+      <div class="page-desc">記錄客戶的理賠案件，統計理賠金額與進度</div>
+    </div>
+    <div class="page-body">
+      <div class="toolbar">
+        <button class="btn primary" onclick="openClaimModal()">＋ 新增理賠</button>
+        <input class="search-input" id="claim-search" placeholder="🔍 搜尋客戶姓名..." oninput="renderClaims()">
+        <select class="filter-select" id="claim-status-filter" onchange="renderClaims()">
+          <option value="">全部進度</option>
+          <option>準備文件</option><option>已送件</option><option>審核中</option><option>已核准</option><option>已撥款</option><option>拒賠</option>
+        </select>
+        <select class="filter-select" id="claim-type-filter" onchange="renderClaims()">
+          <option value="">全部險種</option>
+          <option>醫療</option><option>意外</option><option>癌症</option><option>失能</option><option>壽險</option><option>車險</option><option>其他</option>
+        </select>
+        <input type="date" class="filter-select" id="claim-from" onchange="renderClaims()" style="max-width:140px">
+        <span style="font-size:12px;color:var(--text-mid)">～</span>
+        <input type="date" class="filter-select" id="claim-to" onchange="renderClaims()" style="max-width:140px">
+      </div>
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-card blue"><div class="stat-num" id="claim-total">0</div><div class="stat-label">總件數</div></div>
+        <div class="stat-card green"><div class="stat-num" id="claim-paid">0</div><div class="stat-label">已撥款件數</div></div>
+        <div class="stat-card orange"><div class="stat-num" id="claim-progress">0</div><div class="stat-label">進行中</div></div>
+        <div class="stat-card purple"><div class="stat-num" id="claim-amount">$0</div><div class="stat-label">篩選期間理賠金額</div></div>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>客戶</th><th>險種</th><th>事故日期</th><th>申請日期</th><th>理賠金額</th><th>進度</th><th>備註</th><th>附件</th><th>操作</th></tr></thead>
+        <tbody id="claim-tbody"></tbody></table>
+      </div>
     </div>
   </div>
 
@@ -668,6 +719,10 @@
     <div class="form-grid">
       <div class="form-row"><label>狀態</label><select id="cf-status"><option>新名單</option><option>跟進中</option><option>已提案</option><option>已成交</option><option>未成交</option></select></div>
       <div class="form-row"><label>生日</label><input id="cf-birthday" type="date"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>客戶類型</label><select id="cf-type" onchange="toggleCarExpiry()"><option>壽險客戶</option><option>產險客戶</option><option>壽險+產險</option></select></div>
+      <div class="form-row" id="cf-car-row"><label>🚗 車險到期日</label><input id="cf-car-expiry" type="date"></div>
     </div>
     <div class="form-grid">
       <div class="form-row"><label>最後聯繫日</label><input id="cf-last" type="date"></div>
@@ -828,6 +883,45 @@
   </div>
 </div>
 
+<!-- CLAIM MODAL -->
+<div class="modal-overlay" id="claim-modal">
+  <div class="modal" style="width:600px">
+    <div class="modal-title" id="claim-modal-title">新增理賠</div>
+    <input type="hidden" id="claim-edit-id">
+    <div class="form-grid">
+      <div class="form-row"><label>客戶 *</label><select id="clm-client"></select></div>
+      <div class="form-row"><label>險種 *</label><select id="clm-type"><option>醫療</option><option>意外</option><option>癌症</option><option>失能</option><option>壽險</option><option>車險</option><option>其他</option></select></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>事故日期</label><input id="clm-incident" type="date"></div>
+      <div class="form-row"><label>申請日期</label><input id="clm-apply" type="date"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>理賠金額（元）</label><input id="clm-amount" type="number" placeholder="0" min="0"></div>
+      <div class="form-row"><label>進度</label><select id="clm-status"><option>準備文件</option><option>已送件</option><option>審核中</option><option>已核准</option><option>已撥款</option><option>拒賠</option></select></div>
+    </div>
+    <div class="form-row"><label>備註</label><textarea id="clm-note" placeholder="理賠細節、文件清單..."></textarea></div>
+    <div class="form-row">
+      <label>上傳理賠文件（PDF）</label>
+      <div class="upload-area" id="clm-upload-area" onclick="document.getElementById('clm-file').click()">
+        <label class="upload-label" id="clm-upload-label">
+          <input type="file" id="clm-file" accept="application/pdf" onchange="onClaimPdfSelected(event)">
+          📎 點此上傳理賠文件
+        </label>
+      </div>
+      <div class="upload-progress" id="clm-upload-progress"><div class="upload-progress-bar" id="clm-upload-bar" style="width:0%"></div></div>
+      <div id="clm-current-pdf" style="display:none;margin-top:6px">
+        <a id="clm-current-pdf-link" href="#" target="_blank" class="pdf-preview-btn">📄 查看目前文件</a>
+        <button class="btn danger" style="margin-left:6px;font-size:11px;padding:4px 10px" onclick="removeClaimPdf()">移除</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('claim-modal')">取消</button>
+      <button class="btn primary" id="clm-save-btn" onclick="saveClaim()">儲存</button>
+    </div>
+  </div>
+</div>
+
 <!-- RECRUIT MODAL -->
 <div class="modal-overlay" id="recruit-modal">
   <div class="modal" style="width:560px">
@@ -870,9 +964,25 @@
     <div class="form-row"><label>適用情境（用逗號分隔）</label><input id="rf-tags" placeholder="約訪, 破冰, 拒絕處理..."></div>
     <div class="form-row"><label>內容</label><textarea id="rf-content" style="min-height:120px" placeholder="話術內容、重點說明..."></textarea></div>
     <div class="form-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="rf-fav"> <span>標為常用（首頁顯示）</span></label></div>
+    <div class="form-row">
+      <label>上傳 PDF 檔案（可選）</label>
+      <div class="upload-area" id="rf-upload-area" onclick="document.getElementById('rf-file').click()">
+        <label class="upload-label" id="rf-upload-label">
+          <input type="file" id="rf-file" accept="application/pdf" onchange="onPdfSelected(event)">
+          📎 點此選擇 PDF 檔案
+        </label>
+      </div>
+      <div class="upload-progress" id="rf-upload-progress">
+        <div class="upload-progress-bar" id="rf-upload-bar" style="width:0%"></div>
+      </div>
+      <div id="rf-current-pdf" style="display:none;margin-top:6px">
+        <a id="rf-current-pdf-link" href="#" target="_blank" class="pdf-preview-btn">📄 查看目前 PDF</a>
+        <button class="btn danger" style="margin-left:6px;font-size:11px;padding:4px 10px" onclick="removeCurrentPdf()">移除</button>
+      </div>
+    </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('resource-modal')">取消</button>
-      <button class="btn primary" onclick="saveResource()">儲存</button>
+      <button class="btn primary" id="rf-save-btn" onclick="saveResource()">儲存</button>
     </div>
   </div>
 </div>
@@ -948,7 +1058,7 @@
 <script>
 // ============ DATA LAYER ============
 const DB = {
-  clients: [], logs: [], tasks: [], policies: [], resources: [], events: [], recruits: [],
+  clients: [], logs: [], tasks: [], policies: [], resources: [], events: [], recruits: [], claims: [],
   quote: 0,
   goals: { count: 0, premium: 0, period: 'month', from: '', to: '' }
 };
@@ -977,7 +1087,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();
+const storage = firebase.storage();
 let _currentUser = null;
+let _pendingPdfFile = null;   // 暫存待上傳的 PDF
+let _removePdf = false;       // 是否要移除現有 PDF
 
 function getUserRef() {
   return db.ref('users/' + _currentUser.uid + '/data');
@@ -1089,6 +1202,7 @@ function showPage(name) {
   if (name==='policies') { populateClientSelects(); renderPolicies(); }
   if (name==='calendar') { initCalendar(); }
   if (name==='recruits') renderRecruits();
+  if (name==='claims') { renderClaims(); const n=new Date(); document.getElementById('claim-from').value=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`; document.getElementById('claim-to').value=today(); renderClaims(); }
   if (name==='resources') renderResources();
 }
 
@@ -1180,6 +1294,33 @@ function renderDashboard() {
       </div>`).join('');
   }
 
+  // Car insurance expiry (within 30 days)
+  const carEl = document.getElementById('dash-car-insurance');
+  const carClients = DB.clients.filter(c=>{
+    if (!(c.clientType||'壽險客戶').includes('產險')) return false;
+    if (!c.carExpiry) return false;
+    const days = daysBetween(now, c.carExpiry);
+    return days >= -7 && days <= 30; // show from 7 days overdue to 30 days ahead
+  }).sort((a,b)=>a.carExpiry>b.carExpiry?1:-1);
+  if (carClients.length===0) {
+    carEl.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:8px 0">近期無車險到期提醒</div>';
+  } else {
+    carEl.innerHTML = carClients.map(c=>{
+      const days = daysBetween(now, c.carExpiry);
+      const color = days<0?'var(--accent)':days<=7?'var(--orange)':'var(--yellow)';
+      const label = days<0?`已過期 ${Math.abs(days)} 天`:days===0?'今天到期':`還有 ${days} 天`;
+      return `<div class="callout" style="margin-bottom:6px;padding:10px 14px;border-left:3px solid ${color}">
+        <span class="callout-icon">🚗</span>
+        <div class="callout-body">
+          <span style="font-weight:600">${c.name}</span>
+          <span style="color:${color};margin-left:8px;font-size:12px;font-weight:600">${label}</span>
+          <span style="color:var(--text-dim);margin-left:8px;font-size:12px">${c.carExpiry}</span>
+          ${c.phone?`<span style="color:var(--text-dim);margin-left:8px;font-size:12px">${c.phone}</span>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   // Today's tasks
   const todayTasks = DB.tasks.filter(t=>t.due===now && t.status!=='完成');
   const taskEl = document.getElementById('dash-tasks');
@@ -1259,7 +1400,7 @@ function renderClients() {
 
   const tbody = document.getElementById('client-tbody');
   if (list.length===0) {
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">👤</div><p>還沒有客戶資料，點「新增客戶」開始建立</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">👤</div><p>還沒有客戶資料，點「新增客戶」開始建立</p></div></td></tr>`;
     return;
   }
 
@@ -1267,17 +1408,21 @@ function renderClients() {
     const sleep = c.lastContact ? daysBetween(c.lastContact, now) : null;
     const warn = ageInsuranceWarnDate(c.birthday);
     const ageWarn = warn && warn<=now && c.birthday>=now;
+    const carDays = c.carExpiry ? daysBetween(now, c.carExpiry) : null;
+    const carTag = carDays!==null ? (carDays<0 ? `<span class="tag tag-red">已過期</span>` : carDays<=30 ? `<span class="tag tag-yellow">⚠ ${carDays}天後</span>` : `<span style="font-size:12px;color:var(--text-mid)">${c.carExpiry}</span>`) : '—';
+    const typeTag = c.clientType==='產險客戶'?'tag-orange':c.clientType==='壽險+產險'?'tag-purple':'tag-blue';
     return `<tr>
       <td><strong>${c.name}</strong>${ageWarn?'<span title="增齡提醒" style="margin-left:4px">⏰</span>':''}</td>
       <td>${c.phone||'—'}</td>
+      <td>${tagHTML(c.clientType||'壽險客戶', typeTag)}</td>
       <td>${tagHTML(c.source,'tag-gray')}</td>
       <td>${tagHTML(c.rel, REL_TAG[c.rel])}</td>
       <td>${tagHTML(c.status, STATUS_TAG[c.status])}</td>
       <td>${formatDateFull(c.lastContact)}</td>
       <td>${sleep!==null ? `<span class="${sleep>=60?'sleep-danger':sleep>=30?'sleep-warn':''}">${sleep}天</span>` : '—'}</td>
       <td>${formatDateFull(c.nextContact)}</td>
+      <td>${(c.clientType||'壽險客戶').includes('產險') ? carTag : '—'}</td>
       <td>${c.birthday ? `<span style="font-size:12px">${c.birthday.slice(5).replace('-','/')}</span>` : '—'}</td>
-      <td>${ageWarn ? `<span class="tag tag-yellow">⚠ ${warn}</span>` : '—'}</td>
       <td><div class="row-actions">
         <button class="row-btn" onclick="openClientModal('${c.id}')">編輯</button>
         <button class="row-btn del" onclick="deleteClient('${c.id}')">刪除</button>
@@ -1296,9 +1441,12 @@ function openClientModal(id) {
   document.getElementById('cf-rel').value = c?.rel||'B 認識';
   document.getElementById('cf-status').value = c?.status||'新名單';
   document.getElementById('cf-birthday').value = c?.birthday||'';
+  document.getElementById('cf-type').value = c?.clientType||'壽險客戶';
+  document.getElementById('cf-car-expiry').value = c?.carExpiry||'';
   document.getElementById('cf-last').value = c?.lastContact||'';
   document.getElementById('cf-next').value = c?.nextContact||'';
   document.getElementById('cf-note').value = c?.note||'';
+  toggleCarExpiry();
   openModal('client-modal');
 }
 
@@ -1313,6 +1461,8 @@ function saveClient() {
     rel: document.getElementById('cf-rel').value,
     status: document.getElementById('cf-status').value,
     birthday: document.getElementById('cf-birthday').value,
+    clientType: document.getElementById('cf-type').value,
+    carExpiry: document.getElementById('cf-car-expiry').value,
     lastContact: document.getElementById('cf-last').value,
     nextContact: document.getElementById('cf-next').value,
     note: document.getElementById('cf-note').value.trim(),
@@ -1622,6 +1772,7 @@ function renderResources() {
         ${tagHTML(r.cat, CAT_TAG[r.cat])}
         ${(r.tags||'').split(',').filter(Boolean).slice(0,2).map(t=>tagHTML(t.trim(),'tag-gray')).join('')}
       </div>
+      ${r.pdfUrl ? '<div class="resource-card-pdf">📎 PDF</div>' : ''}
     </div>`).join('');
 }
 
@@ -1635,7 +1786,8 @@ function showResourceDetail(id) {
       ${(r.tags||'').split(',').filter(Boolean).map(t=>tagHTML(t.trim(),'tag-gray')).join('')}
       ${r.fav?'<span class="tag tag-yellow">⭐ 常用</span>':''}
     </div>
-    <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;white-space:pre-wrap;font-size:13px;line-height:1.7;color:var(--text)">${r.content||'（無內容）'}</div>
+    <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;white-space:pre-wrap;font-size:13px;line-height:1.7;color:var(--text)">${r.content||'（無文字內容）'}</div>
+    ${r.pdfUrl ? `<a href="${r.pdfUrl}" target="_blank" class="pdf-preview-btn">📄 開啟 PDF：${r.pdfName||'檔案'}</a>` : ''}
     <div style="font-size:11px;color:var(--text-dim);margin-top:8px">最後更新：${r.date||'未設定'}</div>`;
   openModal('resource-detail-modal');
 }
@@ -1655,24 +1807,99 @@ function openResourceModal(id) {
   document.getElementById('rf-tags').value = r?.tags||'';
   document.getElementById('rf-content').value = r?.content||'';
   document.getElementById('rf-fav').checked = r?.fav||false;
+  // Reset PDF UI
+  _pendingPdfFile = null;
+  _removePdf = false;
+  document.getElementById('rf-file').value = '';
+  document.getElementById('rf-upload-area').classList.remove('has-file');
+  document.getElementById('rf-upload-label').innerHTML = `<input type="file" id="rf-file" accept="application/pdf" onchange="onPdfSelected(event)"> 📎 點此選擇 PDF 檔案`;
+  document.getElementById('rf-upload-progress').style.display = 'none';
+  document.getElementById('rf-upload-bar').style.width = '0%';
+  const pdfDiv = document.getElementById('rf-current-pdf');
+  if (r?.pdfUrl) {
+    pdfDiv.style.display = 'block';
+    document.getElementById('rf-current-pdf-link').href = r.pdfUrl;
+  } else {
+    pdfDiv.style.display = 'none';
+  }
   openModal('resource-modal');
 }
 
-function saveResource() {
+function onPdfSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { alert('檔案過大，請上傳 20MB 以下的 PDF'); return; }
+  _pendingPdfFile = file;
+  document.getElementById('rf-upload-area').classList.add('has-file');
+  document.getElementById('rf-upload-label').innerHTML = `<input type="file" id="rf-file" accept="application/pdf" onchange="onPdfSelected(event)"> ✅ ${file.name}`;
+}
+
+function removeCurrentPdf() {
+  _removePdf = true;
+  document.getElementById('rf-current-pdf').style.display = 'none';
+}
+
+async function saveResource() {
   const name = document.getElementById('rf-name').value.trim();
   if (!name) return alert('請輸入資源名稱');
   const id = document.getElementById('resource-edit-id').value;
-  const data = {
-    id: id||uid(), name,
-    cat: document.getElementById('rf-cat').value,
-    date: document.getElementById('rf-date').value,
-    tags: document.getElementById('rf-tags').value,
-    content: document.getElementById('rf-content').value,
-    fav: document.getElementById('rf-fav').checked,
-  };
-  if (id) { const i=DB.resources.findIndex(r=>r.id===id); DB.resources[i]=data; }
-  else DB.resources.push(data);
-  save(); closeModal('resource-modal'); renderResources();
+  const resourceId = id || uid();
+
+  // Get existing record to preserve pdfUrl if not changed
+  const existing = id ? DB.resources.find(r=>r.id===id) : null;
+  let pdfUrl = existing?.pdfUrl || null;
+  let pdfName = existing?.pdfName || null;
+
+  const saveBtn = document.getElementById('rf-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.textContent = '儲存中…';
+
+  try {
+    // Upload new PDF if selected
+    if (_pendingPdfFile) {
+      const ref = storage.ref(`users/${_currentUser.uid}/resources/${resourceId}_${_pendingPdfFile.name}`);
+      // Show progress
+      document.getElementById('rf-upload-progress').style.display = 'block';
+      const task = ref.put(_pendingPdfFile);
+      await new Promise((resolve, reject) => {
+        task.on('state_changed',
+          snap => {
+            const pct = Math.round(snap.bytesTransferred / snap.totalBytes * 100);
+            document.getElementById('rf-upload-bar').style.width = pct + '%';
+          },
+          reject,
+          resolve
+        );
+      });
+      pdfUrl = await ref.getDownloadURL();
+      pdfName = _pendingPdfFile.name;
+    }
+
+    // Remove PDF if requested
+    if (_removePdf && existing?.pdfUrl) {
+      try { await storage.refFromURL(existing.pdfUrl).delete(); } catch(e) {}
+      pdfUrl = null;
+      pdfName = null;
+    }
+
+    const data = {
+      id: resourceId, name,
+      cat: document.getElementById('rf-cat').value,
+      date: document.getElementById('rf-date').value,
+      tags: document.getElementById('rf-tags').value,
+      content: document.getElementById('rf-content').value,
+      fav: document.getElementById('rf-fav').checked,
+      ...(pdfUrl ? { pdfUrl, pdfName } : {}),
+    };
+    if (id) { const i=DB.resources.findIndex(r=>r.id===id); DB.resources[i]=data; }
+    else DB.resources.push(data);
+    save(); closeModal('resource-modal'); renderResources();
+  } catch(err) {
+    alert('儲存失敗：' + err.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = '儲存';
+  }
 }
 
 // ============ SETTINGS ============
@@ -2318,6 +2545,147 @@ function deleteRecruit(id) {
     DB.recruits = (DB.recruits||[]).filter(r=>r.id!==id);
     save(); renderRecruits();
   });
+}
+
+// ============ CLAIMS ============
+const CLAIM_STATUS_TAG = { '準備文件':'tag-gray','已送件':'tag-blue','審核中':'tag-yellow','已核准':'tag-green','已撥款':'tag-purple','拒賠':'tag-red' };
+let _pendingClaimPdf = null;
+let _removeClaimPdf = false;
+
+function renderClaims() {
+  const search = document.getElementById('claim-search').value.toLowerCase();
+  const statusF = document.getElementById('claim-status-filter').value;
+  const typeF = document.getElementById('claim-type-filter').value;
+  const from = document.getElementById('claim-from').value;
+  const to = document.getElementById('claim-to').value;
+
+  const all = DB.claims || [];
+  let list = all.filter(c => {
+    if (search && !(c.clientName||'').toLowerCase().includes(search)) return false;
+    if (statusF && c.status !== statusF) return false;
+    if (typeF && c.type !== typeF) return false;
+    if (from && c.applyDate && c.applyDate < from) return false;
+    if (to && c.applyDate && c.applyDate > to) return false;
+    return true;
+  });
+
+  // Stats
+  document.getElementById('claim-total').textContent = all.length;
+  document.getElementById('claim-paid').textContent = all.filter(c=>c.status==='已撥款').length;
+  document.getElementById('claim-progress').textContent = all.filter(c=>!['已撥款','拒賠'].includes(c.status)).length;
+  document.getElementById('badge-claims').textContent = all.filter(c=>!['已撥款','拒賠'].includes(c.status)).length;
+  const totalAmt = list.reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+  document.getElementById('claim-amount').textContent = '$' + totalAmt.toLocaleString();
+
+  const tbody = document.getElementById('claim-tbody');
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🏥</div><p>還沒有理賠記錄，點「新增理賠」開始建立</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(c => `<tr>
+    <td><strong>${c.clientName}</strong></td>
+    <td>${tagHTML(c.type,'tag-gray')}</td>
+    <td style="font-size:12px">${c.incidentDate||'—'}</td>
+    <td style="font-size:12px">${c.applyDate||'—'}</td>
+    <td style="font-weight:600;color:var(--green)">${c.amount ? '$'+Number(c.amount).toLocaleString() : '—'}</td>
+    <td>${tagHTML(c.status, CLAIM_STATUS_TAG[c.status])}</td>
+    <td style="max-width:160px;font-size:12px;color:var(--text-dim)">${c.note||'—'}</td>
+    <td>${c.pdfUrl ? `<a href="${c.pdfUrl}" target="_blank" class="pdf-preview-btn" style="padding:4px 8px;font-size:11px">📄 文件</a>` : '—'}</td>
+    <td><div class="row-actions">
+      <button class="row-btn" onclick="openClaimModal('${c.id}')">編輯</button>
+      <button class="row-btn del" onclick="deleteClaim('${c.id}')">刪除</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+function openClaimModal(id) {
+  const c = id ? (DB.claims||[]).find(x=>x.id===id) : null;
+  document.getElementById('claim-modal-title').textContent = c ? '編輯理賠' : '新增理賠';
+  document.getElementById('claim-edit-id').value = id||'';
+  // Populate client dropdown
+  const sel = document.getElementById('clm-client');
+  sel.innerHTML = DB.clients.map(cl=>`<option value="${cl.id}" ${c?.clientId===cl.id?'selected':''}>${cl.name}</option>`).join('');
+  document.getElementById('clm-type').value = c?.type||'醫療';
+  document.getElementById('clm-incident').value = c?.incidentDate||'';
+  document.getElementById('clm-apply').value = c?.applyDate||today();
+  document.getElementById('clm-amount').value = c?.amount||'';
+  document.getElementById('clm-status').value = c?.status||'準備文件';
+  document.getElementById('clm-note').value = c?.note||'';
+  // Reset PDF UI
+  _pendingClaimPdf = null; _removeClaimPdf = false;
+  document.getElementById('clm-file').value = '';
+  document.getElementById('clm-upload-area').classList.remove('has-file');
+  document.getElementById('clm-upload-label').innerHTML = `<input type="file" id="clm-file" accept="application/pdf" onchange="onClaimPdfSelected(event)"> 📎 點此上傳理賠文件`;
+  document.getElementById('clm-upload-progress').style.display = 'none';
+  document.getElementById('clm-upload-bar').style.width = '0%';
+  const pdfDiv = document.getElementById('clm-current-pdf');
+  if (c?.pdfUrl) { pdfDiv.style.display='block'; document.getElementById('clm-current-pdf-link').href=c.pdfUrl; }
+  else { pdfDiv.style.display='none'; }
+  openModal('claim-modal');
+}
+
+function onClaimPdfSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 20*1024*1024) { alert('檔案過大，請上傳 20MB 以下的 PDF'); return; }
+  _pendingClaimPdf = file;
+  document.getElementById('clm-upload-area').classList.add('has-file');
+  document.getElementById('clm-upload-label').innerHTML = `<input type="file" id="clm-file" accept="application/pdf" onchange="onClaimPdfSelected(event)"> ✅ ${file.name}`;
+}
+
+function removeClaimPdf() { _removeClaimPdf=true; document.getElementById('clm-current-pdf').style.display='none'; }
+
+async function saveClaim() {
+  const clientSel = document.getElementById('clm-client');
+  if (!clientSel.value) return alert('請選擇客戶');
+  const id = document.getElementById('claim-edit-id').value;
+  const claimId = id || uid();
+  const existing = id ? (DB.claims||[]).find(c=>c.id===id) : null;
+  let pdfUrl = existing?.pdfUrl||null, pdfName = existing?.pdfName||null;
+
+  const saveBtn = document.getElementById('clm-save-btn');
+  saveBtn.disabled = true; saveBtn.textContent = '儲存中…';
+
+  try {
+    if (_pendingClaimPdf) {
+      const ref = storage.ref(`users/${_currentUser.uid}/claims/${claimId}_${_pendingClaimPdf.name}`);
+      document.getElementById('clm-upload-progress').style.display = 'block';
+      const task = ref.put(_pendingClaimPdf);
+      await new Promise((resolve,reject)=>{ task.on('state_changed', snap=>{ document.getElementById('clm-upload-bar').style.width=Math.round(snap.bytesTransferred/snap.totalBytes*100)+'%'; }, reject, resolve); });
+      pdfUrl = await ref.getDownloadURL(); pdfName = _pendingClaimPdf.name;
+    }
+    if (_removeClaimPdf && existing?.pdfUrl) { try { await storage.refFromURL(existing.pdfUrl).delete(); } catch(e){} pdfUrl=null; pdfName=null; }
+
+    const clientName = clientSel.options[clientSel.selectedIndex].text;
+    const data = {
+      id: claimId, clientId: clientSel.value, clientName,
+      type: document.getElementById('clm-type').value,
+      incidentDate: document.getElementById('clm-incident').value,
+      applyDate: document.getElementById('clm-apply').value,
+      amount: document.getElementById('clm-amount').value,
+      status: document.getElementById('clm-status').value,
+      note: document.getElementById('clm-note').value.trim(),
+      ...(pdfUrl ? { pdfUrl, pdfName } : {}),
+    };
+    if (!DB.claims) DB.claims = [];
+    if (id) { const i=DB.claims.findIndex(c=>c.id===id); DB.claims[i]=data; } else DB.claims.push(data);
+    save(); closeModal('claim-modal'); renderClaims();
+  } catch(err) { alert('儲存失敗：'+err.message); }
+  finally { saveBtn.disabled=false; saveBtn.textContent='儲存'; }
+}
+
+function deleteClaim(id) {
+  showConfirm('刪除此理賠記錄', ()=>{
+    DB.claims = (DB.claims||[]).filter(c=>c.id!==id);
+    save(); renderClaims();
+  });
+}
+
+// ============ CAR INSURANCE HELPERS ============
+function toggleCarExpiry() {
+  const type = document.getElementById('cf-type').value;
+  const row = document.getElementById('cf-car-row');
+  row.style.display = type.includes('產險') ? '' : 'none';
 }
 
 // ============ IMPORT / EXPORT ============
