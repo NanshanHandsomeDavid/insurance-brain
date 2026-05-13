@@ -1133,8 +1133,16 @@ function signOut() {
   auth.signOut();
 }
 
+const ALLOWED_EMAIL = 'davidjameshank@gmail.com';
+
 auth.onAuthStateChanged(user => {
   if (user) {
+    // Check if this is the authorized user
+    if (user.email !== ALLOWED_EMAIL) {
+      auth.signOut();
+      document.getElementById('login-error').textContent = '此帳號無使用權限，請用授權的 Google 帳號登入。';
+      return;
+    }
     _currentUser = user;
     // Show app, hide login
     document.getElementById('login-screen').classList.add('hidden');
