@@ -78,6 +78,30 @@
   #app { display: flex; width: 100%; height: 100%; }
   #app.hidden { display: none; }
 
+  /* DAILY STATS */
+  .daily-stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
+  .daily-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; text-align: center; box-shadow: var(--shadow); }
+  .daily-stat-card .ds-num { font-size: 28px; font-weight: 700; color: var(--blue); line-height: 1; }
+  .daily-stat-card .ds-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .daily-stat-controls { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; }
+  .ds-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border2); background: var(--surface2); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; }
+  .ds-btn:hover { background: var(--border); }
+  .daily-note-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .daily-note-input { flex: 1; padding: 6px 10px; border: 1px solid var(--border2); border-radius: var(--radius); font-size: 12px; background: var(--surface); color: var(--text); }
+
+  /* TREE CHART */
+  .tree-modal { max-width: 90vw; width: 900px; max-height: 85vh; overflow: auto; }
+  .tree-wrap { overflow: auto; padding: 20px; }
+  .tree-node { display: inline-flex; flex-direction: column; align-items: center; }
+  .tree-node-box { background: var(--surface); border: 2px solid var(--blue); border-radius: var(--radius); padding: 8px 14px; font-size: 12px; white-space: nowrap; text-align: center; min-width: 90px; cursor: default; }
+  .tree-node-box.root { background: var(--blue); color: white; border-color: var(--blue); font-weight: 700; }
+  .tree-node-box .occ { font-size: 10px; color: var(--text-dim); }
+  .tree-node-box.root .occ { color: rgba(255,255,255,0.7); }
+  .tree-children { display: flex; gap: 16px; padding-top: 20px; position: relative; }
+  .tree-children::before { content:''; position:absolute; top:0; left:50%; transform:translateX(-50%); width:1px; height:20px; background:var(--border2); }
+  .tree-connector { display: flex; flex-direction: column; align-items: center; }
+  .tree-connector::before { content:''; display:block; width:1px; height:20px; background:var(--border2); }
+
   /* PDF UPLOAD */
   .upload-area { border: 2px dashed var(--border2); border-radius: var(--radius); padding: 16px; text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
   .upload-area:hover { border-color: var(--blue); background: var(--blue-bg); }
@@ -407,6 +431,61 @@
 
       <!-- 今日總覽 TAB -->
       <div class="dash-tab-panel active" id="dash-panel-today">
+
+        <!-- 今日工作記錄 -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;box-shadow:var(--shadow)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:14px;font-weight:700;color:var(--text)">📊 今日工作記錄</div>
+            <div style="font-size:11px;color:var(--text-dim)" id="ds-date-label"></div>
+          </div>
+          <div class="daily-stat-grid">
+            <div class="daily-stat-card">
+              <div class="ds-num" id="ds-visits">0</div>
+              <div class="ds-label">拜訪</div>
+              <div class="daily-stat-controls">
+                <button class="ds-btn" onclick="adjustStat('visits',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('visits',1)">＋</button>
+              </div>
+            </div>
+            <div class="daily-stat-card">
+              <div class="ds-num" id="ds-calls">0</div>
+              <div class="ds-label">電話</div>
+              <div class="daily-stat-controls">
+                <button class="ds-btn" onclick="adjustStat('calls',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('calls',1)">＋</button>
+              </div>
+            </div>
+            <div class="daily-stat-card">
+              <div class="ds-num" id="ds-line">0</div>
+              <div class="ds-label">LINE/訊息</div>
+              <div class="daily-stat-controls">
+                <button class="ds-btn" onclick="adjustStat('line',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('line',1)">＋</button>
+              </div>
+            </div>
+            <div class="daily-stat-card">
+              <div class="ds-num" id="ds-meetings">0</div>
+              <div class="ds-label">約訪成功</div>
+              <div class="daily-stat-controls">
+                <button class="ds-btn" onclick="adjustStat('meetings',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('meetings',1)">＋</button>
+              </div>
+            </div>
+            <div class="daily-stat-card">
+              <div class="ds-num" id="ds-newclients">0</div>
+              <div class="ds-label">新增客戶</div>
+              <div class="daily-stat-controls">
+                <button class="ds-btn" onclick="adjustStat('newClients',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('newClients',1)">＋</button>
+              </div>
+            </div>
+          </div>
+          <div class="daily-note-row">
+            <span style="font-size:12px;color:var(--text-mid);white-space:nowrap">今日備註：</span>
+            <input class="daily-note-input" id="ds-notes" placeholder="今天的重要事項、心得..." oninput="saveDailyStat()">
+          </div>
+        </div>
+
         <div class="stats-grid">
           <div class="stat-card accent"><div class="stat-num" id="stat-total">0</div><div class="stat-label">客戶總數</div></div>
           <div class="stat-card blue"><div class="stat-num" id="stat-followup">0</div><div class="stat-label">跟進中</div></div>
@@ -486,9 +565,11 @@
           <option value="">全部關係</option>
           <option>A 超熟</option><option>B 認識</option><option>C 點頭之交</option><option>D 陌生</option>
         </select>
+        <input class="search-input" id="client-occ-filter" placeholder="🔍 搜尋職業..." oninput="renderClients()" style="max-width:160px">
+        <button class="btn" onclick="exportReferralTree()">🌳 匯出人脈樹狀圖</button>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>姓名</th><th>電話</th><th>類型</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>車險到期</th><th>生日</th><th>操作</th></tr></thead>
+        <thead><tr><th>姓名</th><th>電話</th><th>職業</th><th>類型</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>車險到期</th><th>生日</th><th>操作</th></tr></thead>
         <tbody id="client-tbody"></tbody>
       </table></div>
     </div>
@@ -735,6 +816,20 @@
     <div class="form-grid">
       <div class="form-row"><label>姓名 *</label><input id="cf-name" placeholder="王小明"></div>
       <div class="form-row"><label>電話</label><input id="cf-phone" placeholder="0912-345-678"></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>職業</label>
+        <input id="cf-occupation" list="occ-list" placeholder="例：護理師、工程師、教師...">
+        <datalist id="occ-list">
+          <option>上班族</option><option>自營商</option><option>醫師</option><option>護理師</option>
+          <option>教師</option><option>軍公教</option><option>工程師</option><option>業務員</option>
+          <option>家管</option><option>學生</option><option>退休</option><option>警消</option>
+          <option>會計師</option><option>律師</option><option>建築師</option><option>藥師</option>
+          <option>社工</option><option>農漁牧</option><option>其他</option>
+        </datalist>
+      </div>
+      <div class="form-row"><label>介紹人（轉介紹來源）</label><select id="cf-referrer"><option value="">無</option></select></div>
     </div>
     <div class="form-grid">
       <div class="form-row"><label>來源</label><select id="cf-source"><option>緣故</option><option>陌開</option><option>轉介紹</option><option>網路開發</option><option>活動認識</option><option>公司名單</option><option>保服義工</option></select></div>
@@ -1106,6 +1201,7 @@
 // ============ DATA LAYER ============
 const DB = {
   clients: [], logs: [], tasks: [], policies: [], resources: [], events: [], recruits: [], claims: [],
+  dailyStats: {},   // { 'YYYY-MM-DD': { visits, calls, line, meetings, newClients, notes } }
   quote: 0,
   goals: { count: 0, premium: 0, period: 'month', from: '', to: '' }
 };
@@ -1446,16 +1542,18 @@ function renderClients() {
   const relF = document.getElementById('client-rel-filter').value;
   const now = today();
 
+  const occF = document.getElementById('client-occ-filter').value.toLowerCase();
   let list = DB.clients.filter(c=>{
     if (search && !c.name.toLowerCase().includes(search) && !(c.phone||'').includes(search)) return false;
     if (statusF && c.status!==statusF) return false;
     if (relF && c.rel!==relF) return false;
+    if (occF && !(c.occupation||'').toLowerCase().includes(occF)) return false;
     return true;
   });
 
   const tbody = document.getElementById('client-tbody');
   if (list.length===0) {
-    tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">👤</div><p>還沒有客戶資料，點「新增客戶」開始建立</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">👤</div><p>還沒有客戶資料，點「新增客戶」開始建立</p></div></td></tr>`;
     return;
   }
 
@@ -1469,6 +1567,7 @@ function renderClients() {
     return `<tr>
       <td><strong>${c.name}</strong>${ageWarn?'<span title="增齡提醒" style="margin-left:4px">⏰</span>':''}</td>
       <td>${c.phone||'—'}</td>
+      <td style="font-size:12px;color:var(--text-mid)">${c.occupation||'—'}</td>
       <td>${tagHTML(c.clientType||'壽險客戶', typeTag)}</td>
       <td>${tagHTML(c.source,'tag-gray')}</td>
       <td>${tagHTML(c.rel, REL_TAG[c.rel])}</td>
@@ -1497,6 +1596,10 @@ function openClientModal(id) {
   document.getElementById('cf-rel').value = c?.rel||'B 認識';
   document.getElementById('cf-status').value = c?.status||'新名單';
   document.getElementById('cf-birthday').value = c?.birthday||'';
+  document.getElementById('cf-occupation').value = c?.occupation||'';
+  // Populate referrer dropdown (exclude self)
+  const refSel = document.getElementById('cf-referrer');
+  refSel.innerHTML = '<option value="">無</option>' + DB.clients.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${c?.referredBy===x.id?'selected':''}>${x.name}</option>`).join('');
   document.getElementById('cf-type').value = c?.clientType||'壽險客戶';
   document.getElementById('cf-car-expiry').value = c?.carExpiry||'';
   document.getElementById('cf-last').value = c?.lastContact||'';
@@ -1554,6 +1657,8 @@ async function saveClient() {
     const data = {
       id: clientId, name,
       phone: document.getElementById('cf-phone').value.trim(),
+      occupation: document.getElementById('cf-occupation').value.trim(),
+      referredBy: document.getElementById('cf-referrer').value,
       source: document.getElementById('cf-source').value,
       rel: document.getElementById('cf-rel').value,
       status: document.getElementById('cf-status').value,
@@ -2785,6 +2890,109 @@ function deleteClaim(id) {
   });
 }
 
+// ============ DAILY STATS ============
+function getDailyStatKey() { return today(); }
+
+function loadDailyStat() {
+  const key = getDailyStatKey();
+  const s = (DB.dailyStats || {})[key] || {};
+  document.getElementById('ds-visits').textContent = s.visits || 0;
+  document.getElementById('ds-calls').textContent = s.calls || 0;
+  document.getElementById('ds-line').textContent = s.line || 0;
+  document.getElementById('ds-meetings').textContent = s.meetings || 0;
+  document.getElementById('ds-newclients').textContent = s.newClients || 0;
+  document.getElementById('ds-notes').value = s.notes || '';
+  document.getElementById('ds-date-label').textContent = new Date().toLocaleDateString('zh-TW', {month:'long', day:'numeric', weekday:'short'});
+}
+
+function adjustStat(field, delta) {
+  const key = getDailyStatKey();
+  if (!DB.dailyStats) DB.dailyStats = {};
+  if (!DB.dailyStats[key]) DB.dailyStats[key] = { visits:0, calls:0, line:0, meetings:0, newClients:0, notes:'' };
+  DB.dailyStats[key][field] = Math.max(0, (DB.dailyStats[key][field] || 0) + delta);
+  document.getElementById(`ds-${field==='newClients'?'newclients':field}`).textContent = DB.dailyStats[key][field];
+  save();
+}
+
+let _dsNoteTimer = null;
+function saveDailyStat() {
+  clearTimeout(_dsNoteTimer);
+  _dsNoteTimer = setTimeout(() => {
+    const key = getDailyStatKey();
+    if (!DB.dailyStats) DB.dailyStats = {};
+    if (!DB.dailyStats[key]) DB.dailyStats[key] = { visits:0, calls:0, line:0, meetings:0, newClients:0, notes:'' };
+    DB.dailyStats[key].notes = document.getElementById('ds-notes').value;
+    save();
+  }, 800);
+}
+
+// ============ REFERRAL TREE ============
+function exportReferralTree() {
+  const clients = DB.clients || [];
+  if (clients.length === 0) return alert('目前沒有客戶資料');
+
+  // Build tree structure
+  function buildTree(parentId) {
+    return clients
+      .filter(c => (c.referredBy || '') === (parentId || ''))
+      .map(c => ({ ...c, children: buildTree(c.id) }));
+  }
+
+  const roots = buildTree('');
+  const total = clients.length;
+  const withReferrer = clients.filter(c => c.referredBy).length;
+
+  function renderNode(node, isRoot) {
+    const occ = node.occupation ? `<div style="font-size:10px;color:#aaa;margin-top:2px">${node.occupation}</div>` : '';
+    const referred = node.children.length > 0 ? `<div style="font-size:10px;color:#e16259;margin-top:2px">介紹 ${node.children.length} 人</div>` : '';
+    const box = `<div style="background:${isRoot?'#2383e2':'#fff'};color:${isRoot?'#fff':'#37352f'};border:2px solid ${isRoot?'#2383e2':'#e3e2e0'};border-radius:8px;padding:8px 14px;font-size:12px;white-space:nowrap;text-align:center;min-width:80px;display:inline-block">
+      <div style="font-weight:600">${node.name}</div>
+      ${occ}${referred}
+    </div>`;
+
+    if (node.children.length === 0) return `<div style="display:inline-flex;flex-direction:column;align-items:center">${box}</div>`;
+
+    const childrenHTML = node.children.map(child => renderNode(child, false)).join('');
+    return `<div style="display:inline-flex;flex-direction:column;align-items:center">
+      ${box}
+      <div style="width:1px;height:20px;background:#d3d2d0"></div>
+      <div style="display:flex;gap:16px;position:relative;padding-top:0">
+        <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:calc(100% - 80px);height:1px;background:#d3d2d0"></div>
+        ${node.children.map(child => `<div style="display:inline-flex;flex-direction:column;align-items:center">
+          <div style="width:1px;height:20px;background:#d3d2d0"></div>
+          ${renderNode(child, false)}
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  const treeHTML = `<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<title>客戶人脈樹狀圖</title>
+<style>body{font-family:-apple-system,sans-serif;background:#f7f7f5;padding:30px;color:#37352f}
+h2{margin-bottom:4px}p{color:#787774;font-size:13px;margin-bottom:24px}
+.tree-root{overflow:auto;padding:20px 0}
+@media print{body{background:white}.no-print{display:none}}</style>
+</head><body>
+<h2>🌳 客戶人脈樹狀圖</h2>
+<p>總客戶 ${total} 人 · 透過轉介紹 ${withReferrer} 人 · 產出日期：${today()}</p>
+<div class="no-print" style="margin-bottom:20px">
+  <button onclick="window.print()" style="padding:8px 16px;background:#37352f;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 列印 / 存成 PDF</button>
+</div>
+<div class="tree-root">
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+    ${roots.length > 0 ? roots.map(r => renderNode(r, false)).join('') : '<p>目前沒有客戶資料</p>'}
+  </div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([treeHTML], { type: 'text/html;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `客戶人脈樹狀圖_${today()}.html`;
+  a.click();
+}
+
 // ============ CAR INSURANCE HELPERS ============
 function toggleCarExpiry() {
   const type = document.getElementById('cf-type').value;
@@ -2824,6 +3032,7 @@ function initUI() {
   document.getElementById('hist-from').value = `${_now.getFullYear()}-${_m}-01`;
   document.getElementById('hist-to').value = today();
   document.getElementById('dash-date').textContent = new Date().toLocaleDateString('zh-TW', {year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  loadDailyStat();
   renderDashboard();
 }
 // Auth state observer handles init — no direct call needed here
