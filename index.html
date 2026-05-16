@@ -448,35 +448,35 @@
               </div>
             </div>
             <div class="daily-stat-card">
-              <div class="ds-num" id="ds-calls">0</div>
-              <div class="ds-label">電話</div>
-              <div class="daily-stat-controls">
-                <button class="ds-btn" onclick="adjustStat('calls',-1)">−</button>
-                <button class="ds-btn" onclick="adjustStat('calls',1)">＋</button>
-              </div>
-            </div>
-            <div class="daily-stat-card">
               <div class="ds-num" id="ds-line">0</div>
-              <div class="ds-label">LINE/訊息</div>
+              <div class="ds-label">訊息互動</div>
               <div class="daily-stat-controls">
                 <button class="ds-btn" onclick="adjustStat('line',-1)">−</button>
                 <button class="ds-btn" onclick="adjustStat('line',1)">＋</button>
               </div>
             </div>
             <div class="daily-stat-card">
-              <div class="ds-num" id="ds-meetings">0</div>
-              <div class="ds-label">約訪成功</div>
+              <div class="ds-num" id="ds-proposals">0</div>
+              <div class="ds-label">建議書</div>
               <div class="daily-stat-controls">
-                <button class="ds-btn" onclick="adjustStat('meetings',-1)">−</button>
-                <button class="ds-btn" onclick="adjustStat('meetings',1)">＋</button>
+                <button class="ds-btn" onclick="adjustStat('proposals',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('proposals',1)">＋</button>
               </div>
             </div>
             <div class="daily-stat-card">
               <div class="ds-num" id="ds-newclients">0</div>
-              <div class="ds-label">新增客戶</div>
+              <div class="ds-label">新增準客戶</div>
               <div class="daily-stat-controls">
                 <button class="ds-btn" onclick="adjustStat('newClients',-1)">−</button>
                 <button class="ds-btn" onclick="adjustStat('newClients',1)">＋</button>
+              </div>
+            </div>
+            <div class="daily-stat-card">
+              <div class="ds-num" id="ds-deals">0</div>
+              <div class="ds-label">成交</div>
+              <div class="daily-stat-controls">
+                <button class="ds-btn" onclick="adjustStat('deals',-1)">−</button>
+                <button class="ds-btn" onclick="adjustStat('deals',1)">＋</button>
               </div>
             </div>
           </div>
@@ -567,6 +567,8 @@
         </select>
         <input class="search-input" id="client-occ-filter" placeholder="🔍 搜尋職業..." oninput="renderClients()" style="max-width:160px">
         <button class="btn" onclick="exportReferralTree()">🌳 匯出人脈樹狀圖</button>
+        <button class="btn" onclick="downloadClientTemplate()">📥 下載匯入範本</button>
+        <label class="btn" style="cursor:pointer">📤 匯入 CSV<input type="file" accept=".csv" style="display:none" onchange="importClientsCSV(event)"></label>
       </div>
       <div class="table-wrap"><table>
         <thead><tr><th>姓名</th><th>電話</th><th>職業</th><th>類型</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>車險到期</th><th>生日</th><th>操作</th></tr></thead>
@@ -1026,6 +1028,25 @@
 </div>
 
 <!-- CLAIM MODAL -->
+<!-- CLIENT IMPORT PREVIEW MODAL -->
+<div class="modal-overlay" id="import-preview-modal">
+  <div class="modal" style="width:700px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-title">📤 匯入客戶資料預覽</div>
+    <div id="import-summary" style="font-size:13px;color:var(--text-mid);margin-bottom:12px"></div>
+    <div style="flex:1;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead id="import-thead" style="position:sticky;top:0;background:var(--surface2)"></thead>
+        <tbody id="import-tbody"></tbody>
+      </table>
+    </div>
+    <div id="import-errors" style="font-size:12px;color:var(--accent);margin-top:8px"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('import-preview-modal')">取消</button>
+      <button class="btn primary" id="import-confirm-btn" onclick="confirmImport()">✅ 確認匯入</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="claim-modal">
   <div class="modal" style="width:600px">
     <div class="modal-title" id="claim-modal-title">新增理賠</div>
@@ -2897,10 +2918,10 @@ function loadDailyStat() {
   const key = getDailyStatKey();
   const s = (DB.dailyStats || {})[key] || {};
   document.getElementById('ds-visits').textContent = s.visits || 0;
-  document.getElementById('ds-calls').textContent = s.calls || 0;
   document.getElementById('ds-line').textContent = s.line || 0;
-  document.getElementById('ds-meetings').textContent = s.meetings || 0;
+  document.getElementById('ds-proposals').textContent = s.proposals || 0;
   document.getElementById('ds-newclients').textContent = s.newClients || 0;
+  document.getElementById('ds-deals').textContent = s.deals || 0;
   document.getElementById('ds-notes').value = s.notes || '';
   document.getElementById('ds-date-label').textContent = new Date().toLocaleDateString('zh-TW', {month:'long', day:'numeric', weekday:'short'});
 }
@@ -2924,6 +2945,124 @@ function saveDailyStat() {
     DB.dailyStats[key].notes = document.getElementById('ds-notes').value;
     save();
   }, 800);
+}
+
+// ============ CLIENT CSV IMPORT ============
+const CLIENT_CSV_COLUMNS = [
+  { key: 'name',        label: '姓名*',         required: true  },
+  { key: 'phone',       label: '電話',           required: false },
+  { key: 'occupation',  label: '職業',           required: false },
+  { key: 'clientType',  label: '客戶類型',       required: false, hint: '壽險客戶/產險客戶/壽險+產險' },
+  { key: 'source',      label: '來源',           required: false, hint: '緣故/陌開/轉介紹/網路開發/活動認識/公司名單/保服義工' },
+  { key: 'rel',         label: '關係強度',       required: false, hint: 'A 超熟/B 認識/C 點頭之交/D 陌生' },
+  { key: 'status',      label: '狀態',           required: false, hint: '新名單/跟進中/已提案/已成交/未成交' },
+  { key: 'birthday',    label: '生日',           required: false, hint: 'YYYY-MM-DD' },
+  { key: 'lastContact', label: '最後聯繫日',     required: false, hint: 'YYYY-MM-DD' },
+  { key: 'nextContact', label: '下次聯繫日',     required: false, hint: 'YYYY-MM-DD' },
+  { key: 'carExpiry',   label: '車險到期日',     required: false, hint: 'YYYY-MM-DD，產險客戶用' },
+  { key: 'note',        label: '備註',           required: false },
+];
+
+function downloadClientTemplate() {
+  const header = CLIENT_CSV_COLUMNS.map(c => c.label).join(',');
+  const hint   = CLIENT_CSV_COLUMNS.map(c => c.hint || '').join(',');
+  const example = ['王小明','0912345678','護理師','壽險客戶','緣故','A 超熟','跟進中','1990-05-20','2026-05-01','2026-06-01','','聯絡很積極'].join(',');
+  const csv = '﻿' + header + '\n' + hint + '\n' + example + '\n';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '客戶匯入範本.csv';
+  a.click();
+}
+
+let _importParsed = [];
+
+function importClientsCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return alert('檔案內容不足，請確認格式');
+
+      // First row = header, second row = hint (skip if all non-date text), rest = data
+      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^﻿/, ''));
+      // Map CSV headers to field keys
+      const colMap = rawHeaders.map(h => {
+        const found = CLIENT_CSV_COLUMNS.find(c => c.label === h || c.key === h);
+        return found ? found.key : null;
+      });
+
+      // Detect if line 2 is hint row (no姓名 value, or matches hint patterns)
+      let dataStart = 1;
+      const secondRow = lines[1].split(',');
+      const secondName = secondRow[colMap.indexOf('name')] || '';
+      if (!secondName || secondName.includes('/') || secondName === '') dataStart = 2;
+
+      const parsed = [];
+      const errors = [];
+      for (let i = dataStart; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        if (cols.every(c => !c.trim())) continue; // skip empty rows
+        const row = {};
+        colMap.forEach((key, idx) => {
+          if (key) row[key] = (cols[idx] || '').trim();
+        });
+        if (!row.name) { errors.push(`第 ${i+1} 行：缺少姓名，已略過`); continue; }
+        // Set defaults
+        if (!row.clientType) row.clientType = '壽險客戶';
+        if (!row.rel) row.rel = 'B 認識';
+        if (!row.status) row.status = '新名單';
+        if (!row.source) row.source = '緣故';
+        row.id = uid();
+        parsed.push(row);
+      }
+
+      _importParsed = parsed;
+
+      // Show preview
+      document.getElementById('import-summary').textContent =
+        `共找到 ${parsed.length} 筆客戶資料${errors.length ? `，${errors.length} 筆有問題（已略過）` : '，全部正常'}`;
+      document.getElementById('import-errors').textContent = errors.join('\n');
+
+      const previewCols = ['name','phone','occupation','clientType','source','rel','status','birthday','note'];
+      const colLabels = previewCols.map(k => CLIENT_CSV_COLUMNS.find(c=>c.key===k)?.label || k);
+      document.getElementById('import-thead').innerHTML =
+        `<tr>${colLabels.map(l=>`<th style="padding:8px 10px;text-align:left;font-size:12px;border-bottom:1px solid var(--border)">${l}</th>`).join('')}</tr>`;
+      document.getElementById('import-tbody').innerHTML = parsed.slice(0,50).map(r =>
+        `<tr>${previewCols.map(k=>`<td style="padding:6px 10px;border-bottom:1px solid var(--border);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[k]||'—'}</td>`).join('')}</tr>`
+      ).join('');
+
+      if (parsed.length > 50) {
+        document.getElementById('import-tbody').innerHTML +=
+          `<tr><td colspan="${previewCols.length}" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">（僅預覽前50筆，共 ${parsed.length} 筆）</td></tr>`;
+      }
+
+      openModal('import-preview-modal');
+    } catch(err) {
+      alert('解析失敗：' + err.message);
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function confirmImport() {
+  if (!_importParsed.length) return;
+  const existingNames = new Set(DB.clients.map(c => c.name));
+  let added = 0, skipped = 0;
+  _importParsed.forEach(r => {
+    if (existingNames.has(r.name)) { skipped++; return; } // skip duplicates by name
+    DB.clients.push(r);
+    added++;
+  });
+  save();
+  closeModal('import-preview-modal');
+  renderClients();
+  renderDashboard();
+  alert(`匯入完成！新增 ${added} 筆${skipped ? `，略過重複 ${skipped} 筆` : ''}`);
 }
 
 // ============ REFERRAL TREE ============
