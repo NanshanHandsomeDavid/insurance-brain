@@ -3040,13 +3040,14 @@ function downloadClientTemplate() {
 let _importParsed = [];
 
 function parseCSVText(text) {
-  // Strip BOM and normalize column headers
-  const normalize = s => s.trim().replace(/﻿/g, '').replace(/[*＊]/g, '').trim();
+  const normalize = s => s.trim().replace(/[﻿ï»¿﻿]/g, '').replace(/[*＊]/g, '').trim();
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return null;
 
-  const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/﻿/g, ''));
-  const colMap = rawHeaders.map(h => {
+  const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/[﻿﻿]/g, ''));
+
+  // Try header-based column mapping
+  let colMap = rawHeaders.map(h => {
     const normH = normalize(h);
     const found = CLIENT_CSV_COLUMNS.find(c =>
       c.label === h || c.key === h || normalize(c.label) === normH
@@ -3054,11 +3055,19 @@ function parseCSVText(text) {
     return found ? found.key : null;
   });
 
-  // Detect hint row
+  let nameColIdx = colMap.indexOf('name');
+
+  // Fallback: if name column still not matched (encoding issue), use position-based mapping
+  // The app template always generates columns in CLIENT_CSV_COLUMNS order
+  if (nameColIdx === -1) {
+    colMap = CLIENT_CSV_COLUMNS.map(c => c.key);
+    nameColIdx = 0;
+  }
+
+  // Detect hint row: row 2 has empty name or contains '/' (hint text like '壽險客戶/產險客戶')
   let dataStart = 1;
-  const nameColIdx = colMap.indexOf('name');
-  const secondRow = lines[1].split(',');
-  const secondName = nameColIdx >= 0 ? (secondRow[nameColIdx] || '').trim() : '';
+  const secondCols = lines[1].split(',');
+  const secondName = (secondCols[nameColIdx] || '').trim();
   if (!secondName || secondName.includes('/')) dataStart = 2;
 
   return { lines, colMap, nameColIdx, dataStart };
