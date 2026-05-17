@@ -3039,7 +3039,7 @@ function downloadClientTemplate() {
 
 let _importParsed = [];
 
-function parseCSVText(text) {
+function parseCSVText(text, usePositionFallback = false) {
   const normalize = s => s.trim().replace(/[﻿ï»¿﻿]/g, '').replace(/[*＊]/g, '').trim();
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return null;
@@ -3056,10 +3056,10 @@ function parseCSVText(text) {
   });
 
   let nameColIdx = colMap.indexOf('name');
+  const headerMatched = nameColIdx >= 0;
 
-  // Fallback: if name column still not matched (encoding issue), use position-based mapping
-  // The app template always generates columns in CLIENT_CSV_COLUMNS order
-  if (nameColIdx === -1) {
+  // Only apply position-based fallback when explicitly requested
+  if (!headerMatched && usePositionFallback) {
     colMap = CLIENT_CSV_COLUMNS.map(c => c.key);
     nameColIdx = 0;
   }
@@ -3070,7 +3070,7 @@ function parseCSVText(text) {
   const secondName = (secondCols[nameColIdx] || '').trim();
   if (!secondName || secondName.includes('/')) dataStart = 2;
 
-  return { lines, colMap, nameColIdx, dataStart };
+  return { lines, colMap, nameColIdx, headerMatched, dataStart };
 }
 
 function importClientsCSV(e) {
@@ -3083,12 +3083,12 @@ function importClientsCSV(e) {
     const buf = ev.target.result;
     let parsed = null;
 
-    // Try UTF-8 first, then Big5
+    // Try UTF-8 first, then Big5 — only break when headers actually matched
     for (const enc of ['UTF-8', 'Big5']) {
       try {
         const text = new TextDecoder(enc).decode(buf);
-        const result = parseCSVText(text);
-        if (result && result.nameColIdx >= 0) {
+        const result = parseCSVText(text, false); // no fallback yet
+        if (result && result.headerMatched) {
           parsed = { text, ...result };
           break;
         }
@@ -3096,9 +3096,19 @@ function importClientsCSV(e) {
     }
 
     if (!parsed) {
-      // Fallback: just use UTF-8 and proceed anyway
+      // Headers didn't match in any encoding → likely Big5 template export (no recognizable headers)
+      // Decode as Big5 and use position-based column mapping
+      try {
+        const text = new TextDecoder('Big5').decode(buf);
+        const result = parseCSVText(text, true);
+        if (result) parsed = { text, ...result };
+      } catch(ex) { /* ignore */ }
+    }
+
+    if (!parsed) {
+      // Last resort: UTF-8 with position fallback
       const text = new TextDecoder('UTF-8').decode(buf);
-      const result = parseCSVText(text);
+      const result = parseCSVText(text, true);
       if (!result) return alert('檔案內容不足，請確認格式');
       parsed = { text, ...result };
     }
