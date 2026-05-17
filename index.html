@@ -3039,39 +3039,65 @@ function downloadClientTemplate() {
 
 let _importParsed = [];
 
+function parseCSVText(text) {
+  // Strip BOM and normalize column headers
+  const normalize = s => s.trim().replace(/﻿/g, '').replace(/[*＊]/g, '').trim();
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return null;
+
+  const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/﻿/g, ''));
+  const colMap = rawHeaders.map(h => {
+    const normH = normalize(h);
+    const found = CLIENT_CSV_COLUMNS.find(c =>
+      c.label === h || c.key === h || normalize(c.label) === normH
+    );
+    return found ? found.key : null;
+  });
+
+  // Detect hint row
+  let dataStart = 1;
+  const nameColIdx = colMap.indexOf('name');
+  const secondRow = lines[1].split(',');
+  const secondName = nameColIdx >= 0 ? (secondRow[nameColIdx] || '').trim() : '';
+  if (!secondName || secondName.includes('/')) dataStart = 2;
+
+  return { lines, colMap, nameColIdx, dataStart };
+}
+
 function importClientsCSV(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
+
+  // Read as ArrayBuffer to handle both UTF-8 and Big5 (Excel Taiwan default)
+  const bufReader = new FileReader();
+  bufReader.onload = ev => {
+    const buf = ev.target.result;
+    let parsed = null;
+
+    // Try UTF-8 first, then Big5
+    for (const enc of ['UTF-8', 'Big5']) {
+      try {
+        const text = new TextDecoder(enc).decode(buf);
+        const result = parseCSVText(text);
+        if (result && result.nameColIdx >= 0) {
+          parsed = { text, ...result };
+          break;
+        }
+      } catch(ex) { /* try next */ }
+    }
+
+    if (!parsed) {
+      // Fallback: just use UTF-8 and proceed anyway
+      const text = new TextDecoder('UTF-8').decode(buf);
+      const result = parseCSVText(text);
+      if (!result) return alert('檔案內容不足，請確認格式');
+      parsed = { text, ...result };
+    }
+
     try {
-      const text = ev.target.result;
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) return alert('檔案內容不足，請確認格式');
+      const { lines, colMap, dataStart } = parsed;
 
-      // First row = header, second row = hint (skip if all non-date text), rest = data
-      // Strip BOM (﻿) and normalize headers
-      const normalize = s => s.trim().replace(/﻿/g, '').replace(/[*＊]/g, '').trim();
-      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/﻿/g, ''));
-      // Map CSV headers to field keys (flexible: match with or without *, case-insensitive)
-      const colMap = rawHeaders.map(h => {
-        const normH = normalize(h);
-        const found = CLIENT_CSV_COLUMNS.find(c =>
-          c.label === h ||
-          c.key === h ||
-          normalize(c.label) === normH
-        );
-        return found ? found.key : null;
-      });
-
-      // Detect if line 2 is hint row (no 姓名 value, or matches hint patterns)
-      let dataStart = 1;
-      const nameColIdx = colMap.indexOf('name');
-      const secondRow = lines[1].split(',');
-      const secondName = nameColIdx >= 0 ? (secondRow[nameColIdx] || '').trim() : '';
-      if (!secondName || secondName.includes('/')) dataStart = 2;
-
-      const parsed = [];
+      const parsedRows = [];
       const errors = [];
       for (let i = dataStart; i < lines.length; i++) {
         const cols = lines[i].split(',');
@@ -3087,27 +3113,27 @@ function importClientsCSV(e) {
         if (!row.status) row.status = '新名單';
         if (!row.source) row.source = '緣故';
         row.id = uid();
-        parsed.push(row);
+        parsedRows.push(row);
       }
 
-      _importParsed = parsed;
+      _importParsed = parsedRows;
 
       // Show preview
       document.getElementById('import-summary').textContent =
-        `共找到 ${parsed.length} 筆客戶資料${errors.length ? `，${errors.length} 筆有問題（已略過）` : '，全部正常'}`;
+        `共找到 ${parsedRows.length} 筆客戶資料${errors.length ? `，${errors.length} 筆有問題（已略過）` : '，全部正常'}`;
       document.getElementById('import-errors').textContent = errors.join('\n');
 
       const previewCols = ['name','phone','occupation','clientType','source','rel','status','birthday','note'];
       const colLabels = previewCols.map(k => CLIENT_CSV_COLUMNS.find(c=>c.key===k)?.label || k);
       document.getElementById('import-thead').innerHTML =
         `<tr>${colLabels.map(l=>`<th style="padding:8px 10px;text-align:left;font-size:12px;border-bottom:1px solid var(--border)">${l}</th>`).join('')}</tr>`;
-      document.getElementById('import-tbody').innerHTML = parsed.slice(0,50).map(r =>
+      document.getElementById('import-tbody').innerHTML = parsedRows.slice(0,50).map(r =>
         `<tr>${previewCols.map(k=>`<td style="padding:6px 10px;border-bottom:1px solid var(--border);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[k]||'—'}</td>`).join('')}</tr>`
       ).join('');
 
-      if (parsed.length > 50) {
+      if (parsedRows.length > 50) {
         document.getElementById('import-tbody').innerHTML +=
-          `<tr><td colspan="${previewCols.length}" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">（僅預覽前50筆，共 ${parsed.length} 筆）</td></tr>`;
+          `<tr><td colspan="${previewCols.length}" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">（僅預覽前50筆，共 ${parsedRows.length} 筆）</td></tr>`;
       }
 
       openModal('import-preview-modal');
@@ -3116,7 +3142,7 @@ function importClientsCSV(e) {
     }
     e.target.value = '';
   };
-  reader.readAsText(file, 'UTF-8');
+  bufReader.readAsArrayBuffer(file);
 }
 
 function confirmImport() {
