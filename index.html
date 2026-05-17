@@ -557,7 +557,7 @@
       <div class="toolbar">
         <button class="btn primary" onclick="openClientModal()">＋ 新增客戶</button>
         <button class="btn" id="bulk-select-btn" onclick="toggleBulkSelect()">☑ 多選</button>
-        <button class="btn" id="bulk-delete-btn" onclick="bulkDeleteClients()" style="display:none;background:var(--danger);color:#fff">🗑 刪除已選（<span id="bulk-count">0</span>）</button>
+        <button class="btn" id="bulk-delete-btn" onclick="bulkDeleteClients()" style="display:none;background:#e53e3e;color:#fff;font-weight:600;border:none">🗑 刪除已選（<span id="bulk-count">0</span>筆）</button>
         <button class="btn" id="bulk-cancel-btn" onclick="cancelBulkSelect()" style="display:none">✕ 取消</button>
         <input class="search-input" id="client-search" placeholder="🔍 搜尋姓名、電話..." oninput="renderClients()">
         <select class="filter-select" id="client-status-filter" onchange="renderClients()">
