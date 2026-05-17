@@ -3050,18 +3050,26 @@ function importClientsCSV(e) {
       if (lines.length < 2) return alert('檔案內容不足，請確認格式');
 
       // First row = header, second row = hint (skip if all non-date text), rest = data
-      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^﻿/, ''));
-      // Map CSV headers to field keys
+      // Strip BOM (﻿) and normalize headers
+      const normalize = s => s.trim().replace(/﻿/g, '').replace(/[*＊]/g, '').trim();
+      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/﻿/g, ''));
+      // Map CSV headers to field keys (flexible: match with or without *, case-insensitive)
       const colMap = rawHeaders.map(h => {
-        const found = CLIENT_CSV_COLUMNS.find(c => c.label === h || c.key === h);
+        const normH = normalize(h);
+        const found = CLIENT_CSV_COLUMNS.find(c =>
+          c.label === h ||
+          c.key === h ||
+          normalize(c.label) === normH
+        );
         return found ? found.key : null;
       });
 
-      // Detect if line 2 is hint row (no姓名 value, or matches hint patterns)
+      // Detect if line 2 is hint row (no 姓名 value, or matches hint patterns)
       let dataStart = 1;
+      const nameColIdx = colMap.indexOf('name');
       const secondRow = lines[1].split(',');
-      const secondName = secondRow[colMap.indexOf('name')] || '';
-      if (!secondName || secondName.includes('/') || secondName === '') dataStart = 2;
+      const secondName = nameColIdx >= 0 ? (secondRow[nameColIdx] || '').trim() : '';
+      if (!secondName || secondName.includes('/')) dataStart = 2;
 
       const parsed = [];
       const errors = [];
