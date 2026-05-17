@@ -3092,177 +3092,117 @@ function downloadClientTemplate() {
 
 let _importParsed = [];
 
-// ── 完整 CSV 解析（支援引號欄位、自動偵測分隔符號）──
-function splitCSVLine(line, delim) {
-  const result = [];
-  let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') { inQ = !inQ; continue; }
-    if (!inQ && ch === delim) { result.push(cur.trim()); cur = ''; continue; }
-    cur += ch;
-  }
-  result.push(cur.trim());
-  return result;
-}
-
-function detectDelimiter(firstLine) {
-  const counts = { ',': 0, '\t': 0, ';': 0 };
-  let inQ = false;
-  for (const ch of firstLine) {
-    if (ch === '"') { inQ = !inQ; continue; }
-    if (!inQ && counts[ch] !== undefined) counts[ch]++;
-  }
-  return Object.entries(counts).sort((a,b) => b[1]-a[1])[0][0];
-}
-
-function stripBOM(s) {
-  return s.replace(/^﻿/, '').replace(/^\xEF\xBB\xBF/, '');
-}
-
-function normalizeHeader(h) {
-  return h.trim()
-    .replace(/[﻿​]/g, '')   // BOM / zero-width
-    .replace(/[*＊]/g, '')            // asterisk
-    .replace(/\s+/g, '')              // spaces
-    .toLowerCase();
-}
-
-function parseCSVText(text, usePositionFallback = false) {
-  const clean = stripBOM(text);
-  const lines = clean.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return null;
-
-  const delim = detectDelimiter(lines[0]);
-  const rawHeaders = splitCSVLine(lines[0], delim);
-
-  // Build header → key mapping
-  const colMap = rawHeaders.map(h => {
-    const normH = normalizeHeader(h);
-    const found = CLIENT_CSV_COLUMNS.find(c =>
-      normalizeHeader(c.label) === normH ||
-      c.key === normH ||
-      c.label === h.trim()
-    );
-    return found ? found.key : null;
-  });
-
-  let nameColIdx = colMap.indexOf('name');
-  const headerMatched = nameColIdx >= 0;
-
-  if (!headerMatched && usePositionFallback) {
-    // 使用位置對應（範本順序）
-    const posMap = CLIENT_CSV_COLUMNS.map(c => c.key);
-    posMap.forEach((key, idx) => { if (idx < colMap.length) colMap[idx] = key; });
-    nameColIdx = 0;
-  }
-
-  // 跳過說明列（第二列是提示文字）
-  let dataStart = 1;
-  if (lines.length > 1) {
-    const secondCols = splitCSVLine(lines[1], delim);
-    const secondName = (secondCols[nameColIdx >= 0 ? nameColIdx : 0] || '').trim();
-    if (!secondName || secondName.includes('/') || secondName.includes('例：') || secondName.includes('YYYY')) {
-      dataStart = 2;
-    }
-  }
-
-  return { lines, delim, colMap, nameColIdx, headerMatched, dataStart };
-}
-
 function importClientsCSV(e) {
   const file = e.target.files[0];
   if (!file) return;
 
-  const bufReader = new FileReader();
-  bufReader.onload = ev => {
+  const reader = new FileReader();
+  reader.onload = ev => {
     const buf = ev.target.result;
-    let parsed = null;
 
+    // 嘗試 UTF-8，再試 Big5
+    let text = '';
     for (const enc of ['UTF-8', 'Big5']) {
-      try {
-        const text = new TextDecoder(enc).decode(buf);
-        const result = parseCSVText(text, false);
-        if (result && result.headerMatched) { parsed = { text, ...result }; break; }
-      } catch(ex) {}
+      const t = new TextDecoder(enc).decode(buf);
+      if (/[一-鿿]/.test(t.split(/\r?\n/)[0])) { text = t; break; }
+    }
+    if (!text) text = new TextDecoder('UTF-8').decode(buf);
+
+    // 去除 BOM
+    text = text.replace(/^﻿/, '');
+
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) { alert('檔案內容不足'); return; }
+
+    // 解析標頭（去除 * 號與空白）
+    const headers = lines[0].split(',').map(h => h.trim().replace(/[*＊]/g, '').trim());
+
+    // 對應 CLIENT_CSV_COLUMNS
+    const colMap = headers.map(h => {
+      const col = CLIENT_CSV_COLUMNS.find(c =>
+        c.label.replace(/[*＊]/g, '').trim() === h || c.key === h
+      );
+      return col ? col.key : null;
+    });
+
+    const nameIdx = colMap.indexOf('name');
+    if (nameIdx === -1) {
+      alert('找不到「姓名」欄位，請確認第一列標題是否包含「姓名*」');
+      e.target.value = '';
+      return;
     }
 
-    if (!parsed) {
-      try {
-        const text = new TextDecoder('Big5').decode(buf);
-        const result = parseCSVText(text, true);
-        if (result) parsed = { text, ...result };
-      } catch(ex) {}
+    // 跳過說明列（第二列若無姓名或含 / 符號則跳過）
+    let start = 1;
+    const row2 = lines[1].split(',');
+    const row2name = (row2[nameIdx] || '').trim();
+    if (!row2name || row2name.includes('/') || /yyyy/i.test(row2name)) start = 2;
+
+    // 解析資料列
+    const parsedRows = [], errors = [];
+    for (let i = start; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols.every(c => !c.trim())) continue;
+      const row = {};
+      colMap.forEach((key, idx) => {
+        if (key) row[key] = (cols[idx] || '').trim();
+      });
+      if (!row.name) { errors.push('第 ' + (i + 1) + ' 行：缺少姓名，已略過'); continue; }
+      if (!row.clientType) row.clientType = '壽險客戶';
+      if (!row.rel)        row.rel        = 'B 認識';
+      if (!row.status)     row.status     = '新名單';
+      if (!row.source)     row.source     = '緣故';
+      // 日期格式：把 1969/7/25 → 1969-07-25
+      ['birthday','lastContact','nextContact','carExpiry'].forEach(k => {
+        if (row[k]) {
+          const m = row[k].match(/^(\d{2,4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+          if (m) {
+            const y = m[1].length === 2 || m[1].length === 3 ? parseInt(m[1]) + 1911 : m[1];
+            row[k] = y + '-' + m[2].padStart(2,'0') + '-' + m[3].padStart(2,'0');
+          }
+        }
+      });
+      if (row.monthsSincePolicy) row.monthsSincePolicy = parseInt(row.monthsSincePolicy) || '';
+      row.id = uid();
+      parsedRows.push(row);
     }
 
-    if (!parsed) {
-      const text = new TextDecoder('UTF-8').decode(buf);
-      const result = parseCSVText(text, true);
-      if (!result) { alert('檔案內容不足，請確認格式'); e.target.value = ''; return; }
-      parsed = { text, ...result };
+    _importParsed = parsedRows;
+
+    // 顯示預覽
+    document.getElementById('import-summary').textContent =
+      '共找到 ' + parsedRows.length + ' 筆客戶資料' +
+      (errors.length ? '，' + errors.length + ' 筆略過' : '，全部正常');
+    document.getElementById('import-errors').textContent = errors.join('\n');
+
+    const previewCols = ['name','phone','occupation','clientType','source','rel','status','birthday','note'];
+    const colLabels = previewCols.map(k => {
+      const c = CLIENT_CSV_COLUMNS.find(c => c.key === k);
+      return c ? c.label : k;
+    });
+    document.getElementById('import-thead').innerHTML =
+      '<tr>' + colLabels.map(function(l, i) {
+        return '<th style="padding:8px 10px;text-align:left;font-size:12px;border-bottom:1px solid var(--border)' +
+          (i === 0 ? ';color:var(--accent);font-weight:700' : '') + '">' + l + '</th>';
+      }).join('') + '</tr>';
+    document.getElementById('import-tbody').innerHTML = parsedRows.slice(0, 50).map(function(r) {
+      return '<tr>' + previewCols.map(function(k, i) {
+        return '<td style="padding:6px 10px;border-bottom:1px solid var(--border);' +
+          'max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' +
+          (i === 0 ? ';font-weight:600' : '') + '">' + (r[k] || '—') + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    if (parsedRows.length > 50) {
+      document.getElementById('import-tbody').innerHTML +=
+        '<tr><td colspan="' + previewCols.length +
+        '" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">' +
+        '（僅預覽前50筆，共 ' + parsedRows.length + ' 筆）</td></tr>';
     }
 
-    try {
-      const { lines, delim, colMap, dataStart } = parsed;
-      const parsedRows = [], errors = [];
-
-      for (let i = dataStart; i < lines.length; i++) {
-        const cols = splitCSVLine(lines[i], delim);
-        if (cols.every(c => !c.trim())) continue;
-        const row = {};
-        colMap.forEach((key, idx) => { if (key) row[key] = (cols[idx] || '').trim(); });
-        if (!row.name) { errors.push('第 ' + (i+1) + ' 行：缺少姓名，略過'); continue; }
-        if (!row.clientType) row.clientType = '壽險客戶';
-        if (!row.rel)        row.rel        = 'B 認識';
-        if (!row.status)     row.status     = '新名單';
-        if (!row.source)     row.source     = '緣故';
-        if (row.birthday)    row.birthday    = normDate(row.birthday);
-        if (row.lastContact) row.lastContact = normDate(row.lastContact);
-        if (row.nextContact) row.nextContact = normDate(row.nextContact);
-        if (row.carExpiry)   row.carExpiry   = normDate(row.carExpiry);
-        if (row.monthsSincePolicy) row.monthsSincePolicy = parseInt(row.monthsSincePolicy) || '';
-        row.id = uid();
-        parsedRows.push(row);
-      }
-
-      _importParsed = parsedRows;
-
-      document.getElementById('import-summary').textContent =
-        '共找到 ' + parsedRows.length + ' 筆客戶資料' + (errors.length ? '，' + errors.length + ' 筆略過' : '，全部正常');
-      document.getElementById('import-errors').textContent =
-        errors.slice(0,10).join('\n') + (errors.length > 10 ? '\n…共 ' + errors.length + ' 筆' : '');
-
-      const previewCols = ['name','phone','occupation','clientType','source','rel','status','birthday','monthsSincePolicy','note'];
-      const colLabels = previewCols.map(k => { const c = CLIENT_CSV_COLUMNS.find(c=>c.key===k); return c ? c.label : k; });
-      document.getElementById('import-thead').innerHTML =
-        '<tr>' + colLabels.map(function(l,i){ return '<th style="padding:8px 10px;text-align:left;font-size:12px;border-bottom:1px solid var(--border)' + (i===0?';color:var(--accent)':'') + '">' + l + '</th>'; }).join('') + '</tr>';
-      document.getElementById('import-tbody').innerHTML = parsedRows.slice(0,50).map(function(r){
-        return '<tr>' + previewCols.map(function(k,i){
-          return '<td style="padding:6px 10px;border-bottom:1px solid var(--border);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (i===0?';font-weight:600':'') + '">' + (r[k]||'—') + '</td>';
-        }).join('') + '</tr>';
-      }).join('');
-      if (parsedRows.length > 50) {
-        document.getElementById('import-tbody').innerHTML +=
-          '<tr><td colspan="' + previewCols.length + '" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">（僅預覽前50筆，共 ' + parsedRows.length + ' 筆）</td></tr>';
-      }
-      openModal('import-preview-modal');
-    } catch(err) {
-      alert('解析失敗：' + err.message);
-    }
+    openModal('import-preview-modal');
     e.target.value = '';
   };
-  bufReader.readAsArrayBuffer(file);
-}
-
-function normDate(s) {
-  if (!s) return '';
-  s = s.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  var m1 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-  if (m1) return m1[1] + '-' + m1[2].padStart(2,'0') + '-' + m1[3].padStart(2,'0');
-  var m2 = s.match(/^(\d{2,3})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-  if (m2) return (parseInt(m2[1])+1911) + '-' + m2[2].padStart(2,'0') + '-' + m2[3].padStart(2,'0');
-  return s;
+  reader.readAsArrayBuffer(file);
 }
 
 function confirmImport() {
@@ -3278,8 +3218,9 @@ function confirmImport() {
   closeModal('import-preview-modal');
   renderClients();
   renderDashboard();
-  alert('匯入完成！新增 ' + added + ' 筆' + (skipped ? '，略過重複姓名 ' + skipped + ' 筆' : ''));
+  alert('匯入完成！新增 ' + added + ' 筆' + (skipped ? '，略過重複 ' + skipped + ' 筆' : ''));
 }
+
 </script>
 </body>
 </html>
