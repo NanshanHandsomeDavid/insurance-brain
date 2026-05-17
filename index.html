@@ -1714,6 +1714,12 @@ function renderClients() {
   }
 }
 
+function toggleCarExpiry() {
+  const type = (document.getElementById('cf-type')||{}).value || '';
+  const row = document.getElementById('cf-car-row');
+  if (row) row.style.display = type.includes('產險') ? '' : 'none';
+}
+
 function openClientModal(id) {
   const c = id ? DB.clients.find(x=>x.id===id) : null;
   document.getElementById('client-modal-title').textContent = c ? '編輯客戶' : '新增客戶';
