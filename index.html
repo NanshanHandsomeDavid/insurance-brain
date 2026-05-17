@@ -556,6 +556,9 @@
     <div class="page-body">
       <div class="toolbar">
         <button class="btn primary" onclick="openClientModal()">＋ 新增客戶</button>
+        <button class="btn" id="bulk-select-btn" onclick="toggleBulkSelect()">☑ 多選</button>
+        <button class="btn" id="bulk-delete-btn" onclick="bulkDeleteClients()" style="display:none;background:var(--danger);color:#fff">🗑 刪除已選（<span id="bulk-count">0</span>）</button>
+        <button class="btn" id="bulk-cancel-btn" onclick="cancelBulkSelect()" style="display:none">✕ 取消</button>
         <input class="search-input" id="client-search" placeholder="🔍 搜尋姓名、電話..." oninput="renderClients()">
         <select class="filter-select" id="client-status-filter" onchange="renderClients()">
           <option value="">全部狀態</option>
@@ -571,7 +574,7 @@
         <label class="btn" style="cursor:pointer">📤 匯入 CSV<input type="file" accept=".csv" style="display:none" onchange="importClientsCSV(event)"></label>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>姓名</th><th>電話</th><th>職業</th><th>類型</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>車險到期</th><th>生日</th><th>距上次投保</th><th>操作</th></tr></thead>
+        <thead><tr><th id="bulk-check-th" style="display:none;width:36px"><input type="checkbox" id="bulk-select-all" onchange="toggleSelectAll(this.checked)" title="全選"></th><th>姓名</th><th>電話</th><th>職業</th><th>類型</th><th>來源</th><th>關係強度</th><th>狀態</th><th>最後聯繫</th><th>沉睡天數</th><th>下次聯繫</th><th>車險到期</th><th>生日</th><th>距上次投保</th><th>操作</th></tr></thead>
         <tbody id="client-tbody"></tbody>
       </table></div>
     </div>
@@ -1587,6 +1590,7 @@ function renderClients() {
     const carTag = carDays!==null ? (carDays<0 ? `<span class="tag tag-red">已過期</span>` : carDays<=30 ? `<span class="tag tag-yellow">⚠ ${carDays}天後</span>` : `<span style="font-size:12px;color:var(--text-mid)">${c.carExpiry}</span>`) : '—';
     const typeTag = c.clientType==='產險客戶'?'tag-orange':c.clientType==='壽險+產險'?'tag-purple':'tag-blue';
     return `<tr>
+      <td class="bulk-check-cell" style="display:none;text-align:center"><input type="checkbox" class="bulk-cb" data-id="${c.id}" onchange="updateBulkCount()"></td>
       <td><strong>${c.name}</strong>${ageWarn?'<span title="增齡提醒" style="margin-left:4px">⏰</span>':''}</td>
       <td>${c.phone||'—'}</td>
       <td style="font-size:12px;color:var(--text-mid)">${c.occupation||'—'}</td>
@@ -1607,6 +1611,12 @@ function renderClients() {
       </div></td>
     </tr>`;
   }).join('');
+  // 若目前在多選模式，重新套用顯示狀態
+  if (_bulkMode) {
+    document.getElementById('bulk-check-th').style.display = '';
+    document.querySelectorAll('.bulk-check-cell').forEach(el => el.style.display = '');
+    updateBulkCount();
+  }
 }
 
 function openClientModal(id) {
@@ -1706,6 +1716,53 @@ function deleteClient(id) {
   showConfirm('刪除後無法復原，相關近況記錄不會一起刪除', ()=>{
     DB.clients = DB.clients.filter(c=>c.id!==id);
     save(); renderClients(); renderDashboard();
+  });
+}
+
+// ---- 多選快速刪除 ----
+let _bulkMode = false;
+
+function toggleBulkSelect() {
+  _bulkMode = true;
+  document.getElementById('bulk-select-btn').style.display = 'none';
+  document.getElementById('bulk-delete-btn').style.display = '';
+  document.getElementById('bulk-cancel-btn').style.display = '';
+  document.getElementById('bulk-check-th').style.display = '';
+  document.querySelectorAll('.bulk-check-cell').forEach(el => el.style.display = '');
+  document.getElementById('bulk-select-all').checked = false;
+  updateBulkCount();
+}
+
+function cancelBulkSelect() {
+  _bulkMode = false;
+  document.getElementById('bulk-select-btn').style.display = '';
+  document.getElementById('bulk-delete-btn').style.display = 'none';
+  document.getElementById('bulk-cancel-btn').style.display = 'none';
+  document.getElementById('bulk-check-th').style.display = 'none';
+  document.querySelectorAll('.bulk-check-cell').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.bulk-cb').forEach(cb => cb.checked = false);
+  document.getElementById('bulk-select-all').checked = false;
+  document.getElementById('bulk-count').textContent = '0';
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('.bulk-cb').forEach(cb => cb.checked = checked);
+  updateBulkCount();
+}
+
+function updateBulkCount() {
+  const n = document.querySelectorAll('.bulk-cb:checked').length;
+  document.getElementById('bulk-count').textContent = n;
+  document.getElementById('bulk-select-all').checked =
+    n > 0 && n === document.querySelectorAll('.bulk-cb').length;
+}
+
+function bulkDeleteClients() {
+  const ids = [...document.querySelectorAll('.bulk-cb:checked')].map(cb => cb.dataset.id);
+  if (ids.length === 0) return alert('請先勾選要刪除的客戶');
+  showConfirm(`確定刪除選取的 ${ids.length} 筆客戶？刪除後無法復原。`, () => {
+    DB.clients = DB.clients.filter(c => !ids.includes(c.id));
+    save(); cancelBulkSelect(); renderClients(); renderDashboard();
   });
 }
 
