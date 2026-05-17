@@ -1204,8 +1204,11 @@
     </div>
     <div class="form-row" style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
       <label style="color:var(--red);font-weight:600">⚠️ 危險操作</label>
-      <div style="font-size:12px;color:var(--text-mid);margin-bottom:10px">清除全部客戶資料（用於修復匯入錯誤，刪除後無法復原）</div>
-      <button class="btn" style="background:#fff0f0;color:#e03e3e;border:1px solid #fca5a5;font-weight:600" onclick="clearAllClients()">🗑 清除全部客戶資料</button>
+      <div style="font-size:12px;color:var(--text-mid);margin-bottom:10px">修復匯入錯誤的姓名欄位（把誤存的類型/狀態/生日從姓名裡分離出來），或清除全部重新匯入。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;font-weight:600" onclick="fixClientNames()">🔧 修復姓名欄位（保留資料）</button>
+        <button class="btn" style="background:#fff0f0;color:#e03e3e;border:1px solid #fca5a5;font-weight:600" onclick="clearAllClients()">🗑 清除全部客戶資料</button>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('settings-modal')">取消</button>
@@ -2195,6 +2198,40 @@ async function saveResource() {
 }
 
 // ============ SETTINGS ============
+function fixClientNames() {
+  const KNOWN_TYPES    = ['壽險+產險', '產險客戶', '壽險客戶'];
+  const KNOWN_STATUSES = ['跟進中', '已提案', '已成交', '未成交', '新名單'];
+  let fixed = 0;
+  DB.clients.forEach(c => {
+    if (!c.name || !c.name.includes(' ')) return;
+    const parts = c.name.trim().split(/\s+/);
+    // 第一段為姓名（中文不帶空白）
+    c.name = parts[0];
+    // 從剩餘 parts 搶救欄位
+    parts.slice(1).forEach(p => {
+      // 客戶類型
+      if (KNOWN_TYPES.includes(p) && (!c.clientType || c.clientType === '壽險客戶')) {
+        if (p !== '壽險客戶' || !c.clientType) c.clientType = p;
+      }
+      // 狀態
+      if (KNOWN_STATUSES.includes(p) && (!c.status || c.status === '新名單')) {
+        c.status = p;
+      }
+      // 生日（格式：1974/4/12 或 1974-4-12）
+      if (!c.birthday && /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(p)) {
+        c.birthday = normDate(p);
+      }
+    });
+    fixed++;
+  });
+  if (fixed === 0) { alert('所有姓名欄位都正常，無需修復！'); return; }
+  save();
+  closeModal('settings-modal');
+  renderClients();
+  renderDashboard();
+  alert(`✅ 修復完成！共修復 ${fixed} 筆客戶資料，請確認姓名是否正確。`);
+}
+
 function clearAllClients() {
   showConfirm(`確定要清除全部 ${DB.clients.length} 筆客戶資料嗎？此操作無法復原！`, () => {
     DB.clients = [];
@@ -3055,18 +3092,57 @@ function downloadClientTemplate() {
 
 let _importParsed = [];
 
+// ── 完整 CSV 解析（支援引號欄位、自動偵測分隔符號）──
+function splitCSVLine(line, delim) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQ = !inQ; continue; }
+    if (!inQ && ch === delim) { result.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function detectDelimiter(firstLine) {
+  const counts = { ',': 0, '\t': 0, ';': 0 };
+  let inQ = false;
+  for (const ch of firstLine) {
+    if (ch === '"') { inQ = !inQ; continue; }
+    if (!inQ && counts[ch] !== undefined) counts[ch]++;
+  }
+  return Object.entries(counts).sort((a,b) => b[1]-a[1])[0][0];
+}
+
+function stripBOM(s) {
+  return s.replace(/^﻿/, '').replace(/^\xEF\xBB\xBF/, '');
+}
+
+function normalizeHeader(h) {
+  return h.trim()
+    .replace(/[﻿​]/g, '')   // BOM / zero-width
+    .replace(/[*＊]/g, '')            // asterisk
+    .replace(/\s+/g, '')              // spaces
+    .toLowerCase();
+}
+
 function parseCSVText(text, usePositionFallback = false) {
-  const normalize = s => s.trim().replace(/[﻿ï»¿﻿]/g, '').replace(/[*＊]/g, '').trim();
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const clean = stripBOM(text);
+  const lines = clean.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return null;
 
-  const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/[﻿﻿]/g, ''));
+  const delim = detectDelimiter(lines[0]);
+  const rawHeaders = splitCSVLine(lines[0], delim);
 
-  // Try header-based column mapping
-  let colMap = rawHeaders.map(h => {
-    const normH = normalize(h);
+  // Build header → key mapping
+  const colMap = rawHeaders.map(h => {
+    const normH = normalizeHeader(h);
     const found = CLIENT_CSV_COLUMNS.find(c =>
-      c.label === h || c.key === h || normalize(c.label) === normH
+      normalizeHeader(c.label) === normH ||
+      c.key === normH ||
+      c.label === h.trim()
     );
     return found ? found.key : null;
   });
@@ -3074,103 +3150,101 @@ function parseCSVText(text, usePositionFallback = false) {
   let nameColIdx = colMap.indexOf('name');
   const headerMatched = nameColIdx >= 0;
 
-  // Only apply position-based fallback when explicitly requested
   if (!headerMatched && usePositionFallback) {
-    colMap = CLIENT_CSV_COLUMNS.map(c => c.key);
+    // 使用位置對應（範本順序）
+    const posMap = CLIENT_CSV_COLUMNS.map(c => c.key);
+    posMap.forEach((key, idx) => { if (idx < colMap.length) colMap[idx] = key; });
     nameColIdx = 0;
   }
 
-  // Detect hint row: row 2 has empty name or contains '/' (hint text like '壽險客戶/產險客戶')
+  // 跳過說明列（第二列是提示文字）
   let dataStart = 1;
-  const secondCols = lines[1].split(',');
-  const secondName = (secondCols[nameColIdx] || '').trim();
-  if (!secondName || secondName.includes('/')) dataStart = 2;
+  if (lines.length > 1) {
+    const secondCols = splitCSVLine(lines[1], delim);
+    const secondName = (secondCols[nameColIdx >= 0 ? nameColIdx : 0] || '').trim();
+    if (!secondName || secondName.includes('/') || secondName.includes('例：') || secondName.includes('YYYY')) {
+      dataStart = 2;
+    }
+  }
 
-  return { lines, colMap, nameColIdx, headerMatched, dataStart };
+  return { lines, delim, colMap, nameColIdx, headerMatched, dataStart };
 }
 
 function importClientsCSV(e) {
   const file = e.target.files[0];
   if (!file) return;
 
-  // Read as ArrayBuffer to handle both UTF-8 and Big5 (Excel Taiwan default)
   const bufReader = new FileReader();
   bufReader.onload = ev => {
     const buf = ev.target.result;
     let parsed = null;
 
-    // Try UTF-8 first, then Big5 — only break when headers actually matched
     for (const enc of ['UTF-8', 'Big5']) {
       try {
         const text = new TextDecoder(enc).decode(buf);
-        const result = parseCSVText(text, false); // no fallback yet
-        if (result && result.headerMatched) {
-          parsed = { text, ...result };
-          break;
-        }
-      } catch(ex) { /* try next */ }
+        const result = parseCSVText(text, false);
+        if (result && result.headerMatched) { parsed = { text, ...result }; break; }
+      } catch(ex) {}
     }
 
     if (!parsed) {
-      // Headers didn't match in any encoding → likely Big5 template export (no recognizable headers)
-      // Decode as Big5 and use position-based column mapping
       try {
         const text = new TextDecoder('Big5').decode(buf);
         const result = parseCSVText(text, true);
         if (result) parsed = { text, ...result };
-      } catch(ex) { /* ignore */ }
+      } catch(ex) {}
     }
 
     if (!parsed) {
-      // Last resort: UTF-8 with position fallback
       const text = new TextDecoder('UTF-8').decode(buf);
       const result = parseCSVText(text, true);
-      if (!result) return alert('檔案內容不足，請確認格式');
+      if (!result) { alert('檔案內容不足，請確認格式'); e.target.value = ''; return; }
       parsed = { text, ...result };
     }
 
     try {
-      const { lines, colMap, dataStart } = parsed;
+      const { lines, delim, colMap, dataStart } = parsed;
+      const parsedRows = [], errors = [];
 
-      const parsedRows = [];
-      const errors = [];
       for (let i = dataStart; i < lines.length; i++) {
-        const cols = lines[i].split(',');
-        if (cols.every(c => !c.trim())) continue; // skip empty rows
+        const cols = splitCSVLine(lines[i], delim);
+        if (cols.every(c => !c.trim())) continue;
         const row = {};
-        colMap.forEach((key, idx) => {
-          if (key) row[key] = (cols[idx] || '').trim();
-        });
-        if (!row.name) { errors.push(`第 ${i+1} 行：缺少姓名，已略過`); continue; }
-        // Set defaults
+        colMap.forEach((key, idx) => { if (key) row[key] = (cols[idx] || '').trim(); });
+        if (!row.name) { errors.push('第 ' + (i+1) + ' 行：缺少姓名，略過'); continue; }
         if (!row.clientType) row.clientType = '壽險客戶';
-        if (!row.rel) row.rel = 'B 認識';
-        if (!row.status) row.status = '新名單';
-        if (!row.source) row.source = '緣故';
+        if (!row.rel)        row.rel        = 'B 認識';
+        if (!row.status)     row.status     = '新名單';
+        if (!row.source)     row.source     = '緣故';
+        if (row.birthday)    row.birthday    = normDate(row.birthday);
+        if (row.lastContact) row.lastContact = normDate(row.lastContact);
+        if (row.nextContact) row.nextContact = normDate(row.nextContact);
+        if (row.carExpiry)   row.carExpiry   = normDate(row.carExpiry);
+        if (row.monthsSincePolicy) row.monthsSincePolicy = parseInt(row.monthsSincePolicy) || '';
         row.id = uid();
         parsedRows.push(row);
       }
 
       _importParsed = parsedRows;
 
-      // Show preview
       document.getElementById('import-summary').textContent =
-        `共找到 ${parsedRows.length} 筆客戶資料${errors.length ? `，${errors.length} 筆有問題（已略過）` : '，全部正常'}`;
-      document.getElementById('import-errors').textContent = errors.join('\n');
+        '共找到 ' + parsedRows.length + ' 筆客戶資料' + (errors.length ? '，' + errors.length + ' 筆略過' : '，全部正常');
+      document.getElementById('import-errors').textContent =
+        errors.slice(0,10).join('\n') + (errors.length > 10 ? '\n…共 ' + errors.length + ' 筆' : '');
 
-      const previewCols = ['name','phone','occupation','clientType','source','rel','status','birthday','note'];
-      const colLabels = previewCols.map(k => CLIENT_CSV_COLUMNS.find(c=>c.key===k)?.label || k);
+      const previewCols = ['name','phone','occupation','clientType','source','rel','status','birthday','monthsSincePolicy','note'];
+      const colLabels = previewCols.map(k => { const c = CLIENT_CSV_COLUMNS.find(c=>c.key===k); return c ? c.label : k; });
       document.getElementById('import-thead').innerHTML =
-        `<tr>${colLabels.map(l=>`<th style="padding:8px 10px;text-align:left;font-size:12px;border-bottom:1px solid var(--border)">${l}</th>`).join('')}</tr>`;
-      document.getElementById('import-tbody').innerHTML = parsedRows.slice(0,50).map(r =>
-        `<tr>${previewCols.map(k=>`<td style="padding:6px 10px;border-bottom:1px solid var(--border);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[k]||'—'}</td>`).join('')}</tr>`
-      ).join('');
-
+        '<tr>' + colLabels.map(function(l,i){ return '<th style="padding:8px 10px;text-align:left;font-size:12px;border-bottom:1px solid var(--border)' + (i===0?';color:var(--accent)':'') + '">' + l + '</th>'; }).join('') + '</tr>';
+      document.getElementById('import-tbody').innerHTML = parsedRows.slice(0,50).map(function(r){
+        return '<tr>' + previewCols.map(function(k,i){
+          return '<td style="padding:6px 10px;border-bottom:1px solid var(--border);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (i===0?';font-weight:600':'') + '">' + (r[k]||'—') + '</td>';
+        }).join('') + '</tr>';
+      }).join('');
       if (parsedRows.length > 50) {
         document.getElementById('import-tbody').innerHTML +=
-          `<tr><td colspan="${previewCols.length}" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">（僅預覽前50筆，共 ${parsedRows.length} 筆）</td></tr>`;
+          '<tr><td colspan="' + previewCols.length + '" style="padding:8px;text-align:center;color:var(--text-dim);font-size:12px">（僅預覽前50筆，共 ' + parsedRows.length + ' 筆）</td></tr>';
       }
-
       openModal('import-preview-modal');
     } catch(err) {
       alert('解析失敗：' + err.message);
@@ -3180,12 +3254,23 @@ function importClientsCSV(e) {
   bufReader.readAsArrayBuffer(file);
 }
 
+function normDate(s) {
+  if (!s) return '';
+  s = s.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var m1 = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m1) return m1[1] + '-' + m1[2].padStart(2,'0') + '-' + m1[3].padStart(2,'0');
+  var m2 = s.match(/^(\d{2,3})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m2) return (parseInt(m2[1])+1911) + '-' + m2[2].padStart(2,'0') + '-' + m2[3].padStart(2,'0');
+  return s;
+}
+
 function confirmImport() {
   if (!_importParsed.length) return;
   const existingNames = new Set(DB.clients.map(c => c.name));
   let added = 0, skipped = 0;
   _importParsed.forEach(r => {
-    if (existingNames.has(r.name)) { skipped++; return; } // skip duplicates by name
+    if (existingNames.has(r.name)) { skipped++; return; }
     DB.clients.push(r);
     added++;
   });
@@ -3193,120 +3278,8 @@ function confirmImport() {
   closeModal('import-preview-modal');
   renderClients();
   renderDashboard();
-  alert(`匯入完成！新增 ${added} 筆${skipped ? `，略過重複 ${skipped} 筆` : ''}`);
+  alert('匯入完成！新增 ' + added + ' 筆' + (skipped ? '，略過重複姓名 ' + skipped + ' 筆' : ''));
 }
-
-// ============ REFERRAL TREE ============
-function exportReferralTree() {
-  const clients = DB.clients || [];
-  if (clients.length === 0) return alert('目前沒有客戶資料');
-
-  // Build tree structure
-  function buildTree(parentId) {
-    return clients
-      .filter(c => (c.referredBy || '') === (parentId || ''))
-      .map(c => ({ ...c, children: buildTree(c.id) }));
-  }
-
-  const roots = buildTree('');
-  const total = clients.length;
-  const withReferrer = clients.filter(c => c.referredBy).length;
-
-  function renderNode(node, isRoot) {
-    const occ = node.occupation ? `<div style="font-size:10px;color:#aaa;margin-top:2px">${node.occupation}</div>` : '';
-    const referred = node.children.length > 0 ? `<div style="font-size:10px;color:#e16259;margin-top:2px">介紹 ${node.children.length} 人</div>` : '';
-    const box = `<div style="background:${isRoot?'#2383e2':'#fff'};color:${isRoot?'#fff':'#37352f'};border:2px solid ${isRoot?'#2383e2':'#e3e2e0'};border-radius:8px;padding:8px 14px;font-size:12px;white-space:nowrap;text-align:center;min-width:80px;display:inline-block">
-      <div style="font-weight:600">${node.name}</div>
-      ${occ}${referred}
-    </div>`;
-
-    if (node.children.length === 0) return `<div style="display:inline-flex;flex-direction:column;align-items:center">${box}</div>`;
-
-    const childrenHTML = node.children.map(child => renderNode(child, false)).join('');
-    return `<div style="display:inline-flex;flex-direction:column;align-items:center">
-      ${box}
-      <div style="width:1px;height:20px;background:#d3d2d0"></div>
-      <div style="display:flex;gap:16px;position:relative;padding-top:0">
-        <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:calc(100% - 80px);height:1px;background:#d3d2d0"></div>
-        ${node.children.map(child => `<div style="display:inline-flex;flex-direction:column;align-items:center">
-          <div style="width:1px;height:20px;background:#d3d2d0"></div>
-          ${renderNode(child, false)}
-        </div>`).join('')}
-      </div>
-    </div>`;
-  }
-
-  const treeHTML = `<!DOCTYPE html>
-<html lang="zh-TW"><head><meta charset="UTF-8">
-<title>客戶人脈樹狀圖</title>
-<style>body{font-family:-apple-system,sans-serif;background:#f7f7f5;padding:30px;color:#37352f}
-h2{margin-bottom:4px}p{color:#787774;font-size:13px;margin-bottom:24px}
-.tree-root{overflow:auto;padding:20px 0}
-@media print{body{background:white}.no-print{display:none}}</style>
-</head><body>
-<h2>🌳 客戶人脈樹狀圖</h2>
-<p>總客戶 ${total} 人 · 透過轉介紹 ${withReferrer} 人 · 產出日期：${today()}</p>
-<div class="no-print" style="margin-bottom:20px">
-  <button onclick="window.print()" style="padding:8px 16px;background:#37352f;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 列印 / 存成 PDF</button>
-</div>
-<div class="tree-root">
-  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
-    ${roots.length > 0 ? roots.map(r => renderNode(r, false)).join('') : '<p>目前沒有客戶資料</p>'}
-  </div>
-</div>
-</body></html>`;
-
-  const blob = new Blob([treeHTML], { type: 'text/html;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `客戶人脈樹狀圖_${today()}.html`;
-  a.click();
-}
-
-// ============ CAR INSURANCE HELPERS ============
-function toggleCarExpiry() {
-  const type = document.getElementById('cf-type').value;
-  const row = document.getElementById('cf-car-row');
-  row.style.display = type.includes('產險') ? '' : 'none';
-}
-
-// ============ IMPORT / EXPORT ============
-function exportData() {
-  const blob = new Blob([JSON.stringify(DB, null, 2)], {type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `保險業務第二大腦_備份_${today()}.json`;
-  a.click();
-}
-
-function importData(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      const data = JSON.parse(ev.target.result);
-      if (confirm('確定要匯入？現有資料將被覆蓋。')) {
-        Object.assign(DB, data); save(); location.reload();
-      }
-    } catch { alert('JSON 格式錯誤，請確認備份檔案是否正確'); }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
-}
-
-// ============ INIT (called after Firebase data loaded) ============
-function initUI() {
-  const _now = new Date();
-  const _m = String(_now.getMonth()+1).padStart(2,'0');
-  document.getElementById('hist-from').value = `${_now.getFullYear()}-${_m}-01`;
-  document.getElementById('hist-to').value = today();
-  document.getElementById('dash-date').textContent = new Date().toLocaleDateString('zh-TW', {year:'numeric',month:'long',day:'numeric',weekday:'long'});
-  loadDailyStat();
-  renderDashboard();
-}
-// Auth state observer handles init — no direct call needed here
 </script>
-</div><!-- /#app -->
 </body>
 </html>
