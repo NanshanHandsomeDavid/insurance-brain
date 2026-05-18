@@ -182,6 +182,18 @@
   .row-btn.del:hover { background: var(--accent-bg); color: var(--accent); border-color: #f5bbb8; }
 
   /* MODAL */
+
+  /* 可搜尋下拉選單 */
+  .search-select { position: relative; }
+  .search-select-input { width: 100%; padding: 7px 10px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 14px; box-sizing: border-box; }
+  .search-select-input:focus { outline: none; border-color: var(--accent); }
+  .search-select-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); max-height: 240px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+  .search-select-list.open { display: block; }
+  .ss-item { padding: 9px 13px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--border); }
+  .ss-item:last-child { border-bottom: none; }
+  .ss-item:hover { background: var(--accent-bg); color: var(--accent); }
+  .ss-item.ss-selected { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  .ss-empty { padding: 10px 13px; color: var(--text-dim); font-size: 13px; }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; display: none; align-items: center; justify-content: center; }
   .modal-overlay.open { display: flex; }
   .modal { background: var(--surface); border-radius: 12px; padding: 28px; width: 540px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.15); }
@@ -890,10 +902,19 @@
           <option>社工</option><option>農漁牧</option><option>其他</option>
         </datalist>
       </div>
-      <div class="form-row"><label>介紹人（轉介紹來源）</label><select id="cf-referrer"><option value="">無</option></select></div>
+      <div class="form-row"><label>介紹人（轉介紹來源）</label>
+        <div class="search-select" id="cf-referrer-wrap">
+          <input type="text" class="search-select-input" id="cf-referrer-search"
+            placeholder="輸入姓名搜尋或點選..." autocomplete="off"
+            oninput="ssFilter('cf-referrer',this.value)"
+            onfocus="ssOpen('cf-referrer')"
+            onblur="ssClose('cf-referrer')">
+          <input type="hidden" id="cf-referrer-val">
+          <div class="search-select-list" id="cf-referrer-list"></div>
+        </div></div>
     </div>
     <div class="form-grid">
-      <div class="form-row"><label>來源</label><select id="cf-source"><option>緣故</option><option>陌開</option><option>轉介紹</option><option>網路開發</option><option>活動認識</option><option>公司名單</option><option>保服義工</option></select></div>
+      <div class="form-row"><label>來源</label><select id="cf-source"><option>緣故</option><option>陌開</option><option>轉介紹</option><option>網路開發</option><option>活動認識</option><option>保服義工</option><option>承接</option><option>社團經營</option></select></div>
       <div class="form-row"><label>關係強度</label><select id="cf-rel"><option>A 超熟</option><option>B 認識</option><option>C 點頭之交</option><option>D 陌生</option></select></div>
     </div>
     <div class="form-grid">
@@ -1714,6 +1735,48 @@ function renderClients() {
   }
 }
 
+
+// ── 可搜尋下拉選單 (Search-Select) ────────────────────────────────
+let _ssData = {};   // key → [{ id, name }]
+
+function ssInit(key, options, selectedId) {
+  _ssData[key] = options;
+  const sel = options.find(x => x.id === selectedId);
+  document.getElementById(key + '-search').value = sel && sel.id ? sel.name : '';
+  document.getElementById(key + '-val').value = selectedId || '';
+}
+
+function ssRender(key, q) {
+  const list = document.getElementById(key + '-list');
+  const currentId = document.getElementById(key + '-val').value;
+  const items = (_ssData[key] || []).filter(x => !q || x.name.toLowerCase().includes(q.toLowerCase()));
+  if (!items.length) {
+    list.innerHTML = '<div class="ss-empty">沒有符合結果</div>';
+    return;
+  }
+  list.innerHTML = items.map(x =>
+    `<div class="ss-item${x.id === currentId ? ' ss-selected' : ''}" onmousedown="ssSelect('${key}','${x.id}',${JSON.stringify(x.name)})">${x.name}</div>`
+  ).join('');
+}
+
+function ssFilter(key, q) { ssRender(key, q); }
+
+function ssOpen(key) {
+  ssRender(key, document.getElementById(key + '-search').value);
+  document.getElementById(key + '-list').classList.add('open');
+}
+
+function ssClose(key) {
+  // 延遲關閉讓 mousedown 能先觸發
+  setTimeout(() => document.getElementById(key + '-list').classList.remove('open'), 220);
+}
+
+function ssSelect(key, id, name) {
+  document.getElementById(key + '-val').value = id;
+  document.getElementById(key + '-search').value = id ? name : '';
+  document.getElementById(key + '-list').classList.remove('open');
+}
+
 function toggleCarExpiry() {
   const type = (document.getElementById('cf-type')||{}).value || '';
   const row = document.getElementById('cf-car-row');
@@ -1731,9 +1794,9 @@ function openClientModal(id) {
   document.getElementById('cf-status').value = c?.status||'新名單';
   document.getElementById('cf-birthday').value = c?.birthday||'';
   document.getElementById('cf-occupation').value = c?.occupation||'';
-  // Populate referrer dropdown (exclude self)
-  const refSel = document.getElementById('cf-referrer');
-  refSel.innerHTML = '<option value="">無</option>' + DB.clients.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${c?.referredBy===x.id?'selected':''}>${x.name}</option>`).join('');
+  // Populate referrer search-select (exclude self)
+  const refOptions = [{ id: '', name: '無' }, ...DB.clients.filter(x=>x.id!==id).map(x=>({ id: x.id, name: x.name }))];
+  ssInit('cf-referrer', refOptions, c?.referredBy || '');
   document.getElementById('cf-type').value = c?.clientType||'壽險客戶';
   document.getElementById('cf-car-expiry').value = c?.carExpiry||'';
   document.getElementById('cf-last').value = c?.lastContact||'';
@@ -1795,7 +1858,7 @@ async function saveClient() {
       id: clientId, name,
       phone: document.getElementById('cf-phone').value.trim(),
       occupation: document.getElementById('cf-occupation').value.trim(),
-      referredBy: document.getElementById('cf-referrer').value,
+      referredBy: document.getElementById('cf-referrer-val').value,
       source: document.getElementById('cf-source').value,
       rel: document.getElementById('cf-rel').value,
       status: document.getElementById('cf-status').value,
