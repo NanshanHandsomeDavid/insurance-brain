@@ -582,6 +582,7 @@
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:4px 10px;border:1px solid var(--border2);border-radius:var(--radius)"><input type="checkbox" id="hf-task" checked onchange="renderHistory()"> ✅ 已完成任務</label>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:4px 10px;border:1px solid var(--border2);border-radius:var(--radius)"><input type="checkbox" id="hf-policy" checked onchange="renderHistory()"> 📋 成交保單</label>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:4px 10px;border:1px solid var(--border2);border-radius:var(--radius)"><input type="checkbox" id="hf-event" checked onchange="renderHistory()"> 📅 行程</label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:4px 10px;border:1px solid var(--border2);border-radius:var(--radius)"><input type="checkbox" id="hf-daily" checked onchange="renderHistory()"> 📊 工作紀錄</label>
           <input class="search-input" id="hist-search" placeholder="🔍 搜尋客戶名稱、關鍵字..." oninput="renderHistory()" style="max-width:220px">
         </div>
         <div id="hist-summary" style="margin-bottom:16px"></div>
@@ -1407,6 +1408,51 @@ function load() {
 }
 
 // ============ AUTH FUNCTIONS ============
+function exportData() {
+  try {
+    const data = JSON.parse(JSON.stringify(DB));
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `保險大腦備份_${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(err) {
+    alert('匯出失敗：' + err.message);
+  }
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!confirm('確定要匯入備份資料？這將覆蓋現有所有資料！')) {
+        event.target.value = '';
+        return;
+      }
+      Object.assign(DB, data);
+      save();
+      renderDashboard();
+      renderClients();
+      renderPolicies();
+      renderDiary();
+      alert('✅ 匯入成功！');
+    } catch(err) {
+      alert('匯入失敗：檔案格式錯誤\n' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
 function signInWithGoogle() {
   document.getElementById('login-error').textContent = '';
   const provider = new firebase.auth.GoogleAuthProvider();
@@ -1754,9 +1800,17 @@ function ssRender(key, q) {
     list.innerHTML = '<div class="ss-empty">沒有符合結果</div>';
     return;
   }
-  list.innerHTML = items.map(x =>
-    `<div class="ss-item${x.id === currentId ? ' ss-selected' : ''}" onmousedown="ssSelect('${key}','${x.id}',${JSON.stringify(x.name)})">${x.name}</div>`
-  ).join('');
+  list.innerHTML = items.map(x => {
+    const esc = (x.name || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    return `<div class="ss-item${x.id === currentId ? ' ss-selected' : ''}" data-sskey="${key}" data-ssid="${x.id}" data-ssname="${esc}" onmousedown="ssPickItem(event)" ontouchstart="ssPickItem(event)">${x.name}</div>`;
+  }).join('');
+}
+
+// 點選下拉項目（用 data 屬性避免 HTML 屬性雙引號問題）
+function ssPickItem(e) {
+  e.preventDefault();
+  const el = e.currentTarget;
+  ssSelect(el.dataset.sskey, el.dataset.ssid, el.dataset.ssname);
 }
 
 function ssFilter(key, q) { ssRender(key, q); }
@@ -2597,6 +2651,7 @@ function renderHistory() {
   const showTask = document.getElementById('hf-task').checked;
   const showPolicy = document.getElementById('hf-policy').checked;
   const showEvent = document.getElementById('hf-event').checked;
+  const showDaily = document.getElementById('hf-daily').checked;
 
   const items = [];
 
@@ -2638,6 +2693,17 @@ function renderHistory() {
     });
   }
 
+  // Daily Stats (工作紀錄)
+  if (showDaily) {
+    Object.entries(DB.dailyStats || {}).forEach(([date, s]) => {
+      if (date < from || date > to) return;
+      const total = (s.visits||0)+(s.calls||0)+(s.line||0)+(s.meetings||0)+(s.newClients||0);
+      if (total === 0 && !s.notes) return;
+      if (search && !(s.notes||'').toLowerCase().includes(search)) return;
+      items.push({ date, sort: date, type: 'daily', data: s });
+    });
+  }
+
   // Sort newest first
   items.sort((a,b) => b.sort > a.sort ? 1 : -1);
 
@@ -2645,13 +2711,20 @@ function renderHistory() {
   const logCount = items.filter(i=>i.type==='log').length;
   const taskCount = items.filter(i=>i.type==='task').length;
   const policyCount = items.filter(i=>i.type==='policy').length;
+  const dailyItems = items.filter(i=>i.type==='daily');
   const premiumSum = items.filter(i=>i.type==='policy').reduce((s,i)=>s+(parseFloat(i.data.annual)||0),0);
+  const dVisits = dailyItems.reduce((s,i)=>s+(i.data.visits||0),0);
+  const dCalls = dailyItems.reduce((s,i)=>s+(i.data.calls||0),0);
+  const dLine = dailyItems.reduce((s,i)=>s+(i.data.line||0),0);
+  const dMeetings = dailyItems.reduce((s,i)=>s+(i.data.meetings||0),0);
+  const dNew = dailyItems.reduce((s,i)=>s+(i.data.newClients||0),0);
   document.getElementById('hist-summary').innerHTML = items.length === 0 ? '' :
     `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--text-mid);padding:10px 14px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border)">
       <span>共 <strong style="color:var(--text)">${items.length}</strong> 筆記錄</span>
       ${logCount?`<span>近況更新 <strong style="color:var(--blue)">${logCount}</strong> 筆</span>`:''}
       ${taskCount?`<span>完成任務 <strong style="color:var(--green)">${taskCount}</strong> 件</span>`:''}
       ${policyCount?`<span>成交保單 <strong style="color:var(--purple)">${policyCount}</strong> 件 · 年繳 <strong style="color:var(--purple)">${premiumSum.toFixed(1)}</strong> 萬</span>`:''}
+      ${dailyItems.length?`<span>工作天 <strong style="color:var(--orange)">${dailyItems.length}</strong> 天 · 拜訪 <strong>${dVisits}</strong> · 電話 <strong>${dCalls}</strong> · LINE <strong>${dLine}</strong> · 會議 <strong>${dMeetings}</strong> · 新客 <strong>${dNew}</strong></span>`:''}
     </div>`;
 
   if (items.length === 0) {
@@ -2673,6 +2746,7 @@ function renderHistory() {
     task: ['tag-green','✅ 完成任務'],
     policy: ['tag-purple','📋 成交保單'],
     event: ['tag-orange','📅 行程'],
+    daily: ['tag-orange','📊 工作紀錄'],
   };
   const REACTION_COLOR = { '正面積極':'tag-green','普通需再跟':'tag-yellow','態度冷淡':'tag-orange','明確拒絕':'tag-red' };
 
@@ -2722,6 +2796,21 @@ function renderHistory() {
           </div>
           ${e.location?`<div class="tl-item-body">📍 ${e.location}</div>`:''}
           ${e.desc?`<div class="tl-item-body">${e.desc}</div>`:''}`;
+      }
+      } else if (item.type === 'daily') {
+        const s = item.data;
+        const stats = [
+          s.visits   ? `👣 拜訪 <strong>${s.visits}</strong>`   : '',
+          s.calls    ? `📞 電話 <strong>${s.calls}</strong>`    : '',
+          s.line     ? `💬 LINE <strong>${s.line}</strong>`     : '',
+          s.meetings ? `🤝 會議 <strong>${s.meetings}</strong>` : '',
+          s.newClients ? `🆕 新客 <strong>${s.newClients}</strong>` : '',
+        ].filter(Boolean).join('<span style="color:var(--border2);margin:0 4px">·</span>');
+        body = `<div class="tl-item-header">
+            <span class="tag tag-orange tl-item-type">📊 工作紀錄</span>
+          </div>
+          ${stats ? `<div class="tl-item-body" style="font-size:13px">${stats}</div>` : ''}
+          ${s.notes ? `<div class="tl-item-action" style="margin-top:6px">📝 ${s.notes}</div>` : ''}`;
       }
       html += `<div class="tl-item">${body}</div>`;
     });
