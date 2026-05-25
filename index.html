@@ -1652,32 +1652,34 @@ function renderDashboard() {
   }
 
   // Aging
-  const agingClients = DB.clients.map(c => {
-    if(!c.birthday || c.birthday==='unknown') return null;
-    const incrDate = getAgeIncrementDate(c.birthday);
-    if(!incrDate) return null;
-    const daysUntil = daysBetween(now, incrDate);
-    if(daysUntil === null || daysUntil < 0 || daysUntil > 60) return null;
-    return { c, incrDate, daysUntil };
-  }).filter(Boolean).sort((a,b) => a.daysUntil - b.daysUntil);
+  const agingList = [];
+  (DB.clients||[]).forEach(function(cl) {
+    if (!cl.birthday || cl.birthday==='unknown') return;
+    var incrDate = getAgeIncrementDate(cl.birthday);
+    if (!incrDate) return;
+    var daysUntil = daysBetween(now, incrDate);
+    if (daysUntil === null || daysUntil < 0 || daysUntil > 60) return;
+    agingList.push({ cl: cl, incrDate: incrDate, daysUntil: daysUntil });
+  });
+  agingList.sort(function(a,b){ return a.daysUntil - b.daysUntil; });
   const agEl = document.getElementById('dash-aging');
-  if (agingClients.length===0) {
+  if (agingList.length===0) {
     agEl.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:8px 0;grid-column:1/-1">目前無增齡提醒客戶</div>';
   } else {
-    agEl.innerHTML = agingClients.map(({c, incrDate, daysUntil})=>{
-      const bdDisplay = c.birthday.slice(5).replace('-','/');
+    agEl.innerHTML = agingList.map(function(item){
+      const cl = item.cl, incrDate = item.incrDate, daysUntil = item.daysUntil;
+      const bdDisplay = (cl.birthday||'').slice(5).replace('-','/');
       const incrDisplay = incrDate.slice(5).replace('-','/');
       const urgency = daysUntil<=14?'var(--accent)':daysUntil<=30?'var(--orange)':'var(--yellow)';
-      const label = daysUntil===0?'今日增齡':daysUntil===1?'明日增齡':`還有 ${daysUntil} 天`;
-      return `<div class="callout yellow" style="margin:0;padding:10px 14px;border-left-color:${urgency}">
-        <span class="callout-icon">⏰</span>
-        <div class="callout-body" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-weight:600">${c.name}</span>
-          <span style="color:var(--text-mid);font-size:12px">生日 ${bdDisplay} → 增齡日 ${incrDisplay}</span>
-          <span style="color:${urgency};font-size:12px;font-weight:600">${label}</span>
-          ${c.phone?`<a href="tel:${c.phone}" style="font-size:12px;color:var(--blue)">${c.phone}</a>`:''}
-        </div>
-      </div>`;
+      const label = daysUntil===0?'今日增齡':daysUntil===1?'明日增齡':'還有 '+daysUntil+' 天';
+      return '<div class="callout yellow" style="margin:0;padding:10px 14px;border-left-color:'+urgency+'">'
+        +'<span class="callout-icon">⏰</span>'
+        +'<div class="callout-body" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        +'<span style="font-weight:600">'+cl.name+'</span>'
+        +'<span style="color:var(--text-mid);font-size:12px">生日 '+bdDisplay+' → 增齡日 '+incrDisplay+'</span>'
+        +'<span style="color:'+urgency+';font-size:12px;font-weight:600">'+label+'</span>'
+        +(cl.phone?'<a href="tel:'+cl.phone+'" style="font-size:12px;color:var(--blue)">'+cl.phone+'</a>':'')
+        +'</div></div>';
     }).join('');
   }
 
