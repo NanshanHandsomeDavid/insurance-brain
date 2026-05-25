@@ -538,8 +538,6 @@
           <div>
             <div class="dash-section-title">🎂 本月生日客戶</div>
             <div id="dash-birthdays"></div>
-            <div class="dash-section-title" style="margin-top:16px">⏰ 增齡提醒（60天內）</div>
-            <div id="dash-aging"></div>
           </div>
           <div>
             <div class="dash-section-title">🚗 車險即將到期（30天內）</div>
@@ -556,6 +554,8 @@
             </div>
           </div>
         </div>
+        <div class="dash-section-title">⏰ 增齡提醒（60天內）</div>
+        <div id="dash-aging" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:24px"></div>
         <div class="dash-section-title">⏰ 久未聯繫（前5名）</div>
         <div class="table-wrap" style="margin-bottom:24px"><table><thead><tr><th>姓名</th><th>最後聯繫</th><th>沉睡天數</th><th>關係強度</th></tr></thead><tbody id="dash-sleep-table"></tbody></table></div>
       </div>
@@ -1653,7 +1653,7 @@ function renderDashboard() {
   }).sort((a,b)=>daysBetween(now,getAgeIncrementDate(a.birthday))-daysBetween(now,getAgeIncrementDate(b.birthday)));
   const agEl = document.getElementById('dash-aging');
   if (agingClients.length===0) {
-    agEl.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:8px 0">目前無增齡提醒客戶</div>';
+    agEl.innerHTML = '<div style="font-size:13px;color:var(--text-dim);padding:8px 0;grid-column:1/-1">目前無增齡提醒客戶</div>';
   } else {
     agEl.innerHTML = agingClients.map(c=>{
       const incrDate = getAgeIncrementDate(c.birthday);
@@ -1661,12 +1661,11 @@ function renderDashboard() {
       const bdDisplay = c.birthday.slice(5).replace('-','/');
       const incrDisplay = incrDate ? incrDate.slice(5).replace('-','/') : '';
       const urgency = daysUntil<=14?'var(--accent)':daysUntil<=30?'var(--orange)':'var(--yellow)';
-      return `<div class="callout yellow" style="margin-bottom:6px;padding:10px 14px;border-left-color:${urgency}">
+      return `<div class="callout yellow" style="margin:0;padding:10px 14px;border-left-color:${urgency}">
         <span class="callout-icon">⏰</span>
         <div class="callout-body" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-weight:600">${c.name}</span>
-          <span style="color:var(--text-mid);font-size:12px">生日 ${bdDisplay}</span>
-          <span style="color:var(--text-mid);font-size:12px">→ 增齡日 ${incrDisplay}</span>
+          <span style="color:var(--text-mid);font-size:12px">生日 ${bdDisplay} → 增齡日 ${incrDisplay}</span>
           <span style="color:${urgency};font-size:12px;font-weight:600">還有 ${daysUntil} 天</span>
           ${c.phone?`<a href="tel:${c.phone}" style="font-size:12px;color:var(--blue)">${c.phone}</a>`:''}
         </div>
