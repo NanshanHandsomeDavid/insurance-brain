@@ -3496,6 +3496,10 @@ const ACT_TYPE_LABELS = {
 function openActivityModal(type) {
   document.getElementById('act-type').value = type || 'visits';
   document.getElementById('act-note').value = '';
+  // Pre-fill today's date and current time
+  const now = new Date();
+  document.getElementById('act-date').value = today();
+  document.getElementById('act-time').value = now.toTimeString().slice(0,5);
   const clientOptions = [{ id:'', name:'（未指定）' }, ...DB.clients.map(c=>({ id:c.id, name:c.name }))];
   ssInit('act-client', clientOptions, '');
   openModal('activity-modal');
@@ -3510,9 +3514,15 @@ function saveActivity() {
   if (!DB.dailyStats) DB.dailyStats = {};
   if (!DB.dailyStats[key]) DB.dailyStats[key] = { visits:0, calls:0, line:0, meetings:0, newClients:0, notes:'', proposals:0, deals:0, logs:[] };
   if (!DB.dailyStats[key].logs) DB.dailyStats[key].logs = [];
-  DB.dailyStats[key][type] = (DB.dailyStats[key][type] || 0) + 1;
-  DB.dailyStats[key].logs.push({ id:uid(), type, clientId, clientName, note,
-    time: new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}) });
+  const actDate = document.getElementById('act-date').value || today();
+  const actTime = document.getElementById('act-time').value || new Date().toTimeString().slice(0,5);
+  // If date differs from today, use actDate as the stat key
+  const statKey = actDate || key;
+  if (!DB.dailyStats[statKey]) DB.dailyStats[statKey] = { visits:0, calls:0, line:0, meetings:0, newClients:0, notes:'', proposals:0, deals:0, logs:[] };
+  if (!DB.dailyStats[statKey].logs) DB.dailyStats[statKey].logs = [];
+  DB.dailyStats[statKey][type] = (DB.dailyStats[statKey][type] || 0) + 1;
+  DB.dailyStats[statKey].logs.push({ id:uid(), type, clientId, clientName, note,
+    date: actDate, time: actTime });
   save(); loadDailyStat(); renderDailyLog();
   closeModal('activity-modal');
 }
@@ -3525,7 +3535,8 @@ function renderDailyLog() {
   if (!logs.length) { el.innerHTML = ''; return; }
   el.innerHTML = `<div style="margin-top:10px;font-size:11px;color:var(--text-dim);margin-bottom:4px;font-weight:600;letter-spacing:.5px">今日紀錄</div>` +
     logs.map(l=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;background:var(--bg);margin-bottom:3px;font-size:12px">
-      <span style="color:var(--text-dim);min-width:34px">${l.time}</span>
+      <span style="color:var(--text-dim);min-width:34px">${l.time||''}</span>
+      ${l.date && l.date !== today() ? `<span style="color:var(--orange);font-size:11px">${l.date.slice(5).replace('-','/')}</span>` : ''}
       <span>${ACT_TYPE_LABELS[l.type]||l.type}</span>
       ${l.clientName?`<span style="color:var(--blue);font-weight:600">${l.clientName}</span>`:''}
       ${l.note?`<span style="color:var(--text-mid)">· ${l.note}</span>`:''}
@@ -3824,6 +3835,13 @@ function confirmImport() {
           onblur="ssClose('act-client')">
         <input type="hidden" id="act-client-val">
         <div class="search-select-list" id="act-client-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>日期與時間</label>
+      <div style="display:flex;gap:8px">
+        <input type="date" id="act-date" style="flex:1">
+        <input type="time" id="act-time" style="width:110px">
       </div>
     </div>
     <div class="form-row">
