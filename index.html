@@ -324,6 +324,25 @@
   .api-key-status.ok { color: var(--green); }
   .api-key-status.err { color: var(--red); }
 
+  /* PRINT */
+  @media print {
+    .nav, .page-header, .toolbar, .modal-overlay,
+    .dash-tabs, #dash-export-btns, .daily-stat-controls,
+    .hist-filter, .row-btn, .ds-log-list,
+    .daily-note-row { display: none !important; }
+    body, html { background: #fff !important; }
+    .page { box-shadow: none !important; padding: 0 !important; }
+    .page:not(.active) { display: none !important; }
+    .dash-tab-panel { display: none !important; }
+    .dash-tab-panel[data-printing="1"] { display: block !important; }
+    .callout { break-inside: avoid; }
+    #dash-aging { grid-template-columns: 1fr 1fr; }
+    .tl-item { break-inside: avoid; }
+    #print-header { display: block !important; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  }
+  #print-header { display: none; }
+
   /* CALENDAR */
   .cal-evt.aging { background: #fff3cd; color: #856404; border-left: 2px solid var(--orange); }
   .cal-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -2668,11 +2687,48 @@ ${r.content || '（無內容）'}
 }
 
 // ============ DASHBOARD TABS ============
+function exportDashPDF(panelName) {
+  // Switch to target tab first
+  const tabBtn = document.querySelector('.dash-tab[onclick*="' + panelName + '"]');
+  if (tabBtn) switchDashTab(panelName, tabBtn);
+
+  // Mark which panel to print
+  document.querySelectorAll('.dash-tab-panel').forEach(p => p.removeAttribute('data-printing'));
+  const panel = document.getElementById('dash-panel-' + panelName);
+  if (panel) panel.setAttribute('data-printing', '1');
+
+  // Inject print header
+  const stamp = new Date().toLocaleDateString('zh-TW', {year:'numeric', month:'long', day:'numeric', weekday:'long'});
+  const titleMap = { today: '今日總覽', history: '歷史記錄總覽' };
+  let header = document.getElementById('print-header');
+  if (!header) {
+    header = document.createElement('div');
+    header.id = 'print-header';
+    const body = document.querySelector('#page-dashboard .page-body');
+    if (body) body.prepend(header);
+  }
+  header.innerHTML = '<div style="text-align:center;padding:12px 0 10px;border-bottom:2px solid #333;margin-bottom:16px">'
+    + '<div style="font-size:11px;color:#888;letter-spacing:1px;margin-bottom:4px">保險業務管理系統</div>'
+    + '<div style="font-size:20px;font-weight:700">' + (titleMap[panelName]||panelName) + '</div>'
+    + '<div style="font-size:12px;color:#666;margin-top:4px">' + stamp + '</div>'
+    + '</div>';
+
+  window.print();
+
+  // Cleanup
+  document.querySelectorAll('.dash-tab-panel').forEach(p => p.removeAttribute('data-printing'));
+}
+
 function switchDashTab(name, el) {
   document.querySelectorAll('.dash-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.dash-tab-panel').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('dash-panel-' + name).classList.add('active');
+  // Show matching export button
+  const eToday = document.getElementById('btn-export-today');
+  const eHist = document.getElementById('btn-export-history');
+  if (eToday) eToday.style.display = name==='today' ? '' : 'none';
+  if (eHist) eHist.style.display = name==='history' ? '' : 'none';
   if (name === 'history') renderHistory();
 }
 
