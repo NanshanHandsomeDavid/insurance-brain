@@ -3566,14 +3566,10 @@ function saveActivity() {
   const clientId = document.getElementById('act-client-val').value;
   const clientName = clientId ? getClientName(clientId) : '';
   const note = document.getElementById('act-note').value.trim();
-  const key = getDailyStatKey();
   if (!DB.dailyStats) DB.dailyStats = {};
-  if (!DB.dailyStats[key]) DB.dailyStats[key] = { visits:0, calls:0, line:0, meetings:0, newClients:0, notes:'', proposals:0, deals:0, logs:[] };
-  if (!DB.dailyStats[key].logs) DB.dailyStats[key].logs = [];
   const actDate = document.getElementById('act-date').value || today();
   const actTime = document.getElementById('act-time').value || new Date().toTimeString().slice(0,5);
-  // If date differs from today, use actDate as the stat key
-  const statKey = actDate || key;
+  const statKey = actDate;
   if (!DB.dailyStats[statKey]) DB.dailyStats[statKey] = { visits:0, calls:0, line:0, meetings:0, newClients:0, notes:'', proposals:0, deals:0, logs:[] };
   if (!DB.dailyStats[statKey].logs) DB.dailyStats[statKey].logs = [];
   DB.dailyStats[statKey][type] = (DB.dailyStats[statKey][type] || 0) + 1;
@@ -3581,33 +3577,67 @@ function saveActivity() {
     date: actDate, time: actTime });
   save(); loadDailyStat(); renderDailyLog();
   closeModal('activity-modal');
+  // 成交後跳轉到保單業績頁面
+  if (type === 'deals') {
+    setTimeout(function(){ showPage('policies'); }, 300);
+  }
 }
 
 function renderDailyLog() {
-  const key = getDailyStatKey();
-  const logs = ((DB.dailyStats||{})[key]?.logs || []).slice().reverse();
   const el = document.getElementById('ds-log-list');
   if (!el) return;
-  if (!logs.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `<div style="margin-top:10px;font-size:11px;color:var(--text-dim);margin-bottom:4px;font-weight:600;letter-spacing:.5px">今日紀錄</div>` +
-    logs.map(l=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;background:var(--bg);margin-bottom:3px;font-size:12px">
-      <span style="color:var(--text-dim);min-width:34px">${l.time||''}</span>
-      ${l.date && l.date !== today() ? `<span style="color:var(--orange);font-size:11px">${l.date.slice(5).replace('-','/')}</span>` : ''}
-      <span>${ACT_TYPE_LABELS[l.type]||l.type}</span>
-      ${l.clientName?`<span style="color:var(--blue);font-weight:600">${l.clientName}</span>`:''}
-      ${l.note?`<span style="color:var(--text-mid)">· ${l.note}</span>`:''}
-      <button class="row-btn del" style="margin-left:auto;padding:1px 6px;font-size:11px" onclick="deleteActivityLog('${l.id}')">✕</button>
-    </div>`).join('');
+  // Collect logs from ALL dates, most recent first
+  const allLogs = [];
+  Object.entries(DB.dailyStats || {}).forEach(function([date, s]) {
+    (s.logs || []).forEach(function(l) {
+      allLogs.push(Object.assign({}, l, { _statDate: date }));
+    });
+  });
+  allLogs.sort(function(a, b) {
+    const ka = (a._statDate||'') + (a.time||'');
+    const kb = (b._statDate||'') + (b.time||'');
+    return kb.localeCompare(ka);
+  });
+  if (!allLogs.length) { el.innerHTML = ''; return; }
+  const todayStr = today();
+  el.innerHTML = '<div style="margin-top:10px;font-size:11px;color:var(--text-dim);margin-bottom:4px;font-weight:600;letter-spacing:.5px">所有紀錄</div>'
+    + allLogs.map(function(l) {
+      const isPast = l._statDate && l._statDate !== todayStr;
+      const dateLabel = isPast
+        ? '<span style="color:var(--orange);font-size:11px;font-weight:600">' + l._statDate.slice(5).replace('-','/') + '</span>'
+        : '';
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;background:var(--bg);margin-bottom:3px;font-size:12px">'
+        + '<span style="color:var(--text-dim);min-width:34px">' + (l.time||'') + '</span>'
+        + dateLabel
+        + '<span>' + (ACT_TYPE_LABELS[l.type]||l.type) + '</span>'
+        + (l.clientName ? '<span style="color:var(--blue);font-weight:600">' + l.clientName + '</span>' : '')
+        + (l.note ? '<span style="color:var(--text-mid)">· ' + l.note + '</span>' : '')
+        + '<button class="row-btn del" style="margin-left:auto;padding:1px 6px;font-size:11px" data-logid="' + l.id + '" data-statdate="' + l._statDate + '" onmousedown="actLogDelete(this)">✕</button>'
+        + '</div>';
+    }).join('');
 }
 
-function deleteActivityLog(logId) {
-  const key = getDailyStatKey();
-  if (!DB.dailyStats?.[key]?.logs) return;
-  const log = DB.dailyStats[key].logs.find(l=>l.id===logId);
-  if (!log) return;
-  DB.dailyStats[key][log.type] = Math.max(0, (DB.dailyStats[key][log.type]||1) - 1);
-  DB.dailyStats[key].logs = DB.dailyStats[key].logs.filter(l=>l.id!==logId);
-  save(); loadDailyStat(); renderDailyLog();
+function actLogDelete(btn) {
+  var logId = btn.getAttribute('data-logid');
+  var statDate = btn.getAttribute('data-statdate');
+  deleteActivityLog(logId, statDate);
+}
+
+function deleteActivityLog(logId, statDate) {
+  if (!DB.dailyStats) return;
+  // If statDate given, use it directly; otherwise search all dates
+  const keys = statDate ? [statDate] : Object.keys(DB.dailyStats);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (!DB.dailyStats[k] || !DB.dailyStats[k].logs) continue;
+    var log = DB.dailyStats[k].logs.find(function(l){ return l.id === logId; });
+    if (log) {
+      DB.dailyStats[k][log.type] = Math.max(0, (DB.dailyStats[k][log.type]||1) - 1);
+      DB.dailyStats[k].logs = DB.dailyStats[k].logs.filter(function(l){ return l.id !== logId; });
+      save(); loadDailyStat(); renderDailyLog();
+      return;
+    }
+  }
 }
 
 function loadDailyStat() {
